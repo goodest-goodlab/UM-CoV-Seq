@@ -41,5 +41,7 @@ The reference genome is included in the folder `SARS-CoV-2-refseq`. It contains 
 
 This genome was downloaded from [NCBI Accession NC_045512](https://www.ncbi.nlm.nih.gov/genome/?term=NC_045512) on June 10, 2021.
 
+More information can be found on [NCBI's SARS-CoV-2 Resources page](https://www.ncbi.nlm.nih.gov/sars-cov-2/)
+
 ### More to come!
 
