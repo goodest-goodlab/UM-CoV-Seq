@@ -32,5 +32,14 @@ And finally, activate the environment:
 
     conda activate UM-CoV-Seq
 
+
+We have also included the [NextClade binary](https://github.com/nextstrain/nextclade/releases) to try out as well.
+
+## SARS-CoV-2 reference genome
+
+The reference genome is included in the folder `SARS-CoV-2-refseq`. It contains the full nucleotide assembly as well as the protein sequences and annotation information. 
+
+This genome was downloaded from [NCBI Accession NC_045512](https://www.ncbi.nlm.nih.gov/genome/?term=NC_045512) on June 10, 2021.
+
 ### More to come!
 
