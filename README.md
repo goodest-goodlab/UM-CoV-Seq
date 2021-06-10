@@ -4,7 +4,7 @@ This repository will hold pipelines, protocols, and web resources from the Unive
 
 The initial pipeline comes from the Florida Coronavirus Genome Network (FL-CGNet) created at the University of Florida.
 
-This repository also contains the [ProblematicSites_SARS-CoV2](https://github.com/W-L/ProblematicSites_SARS-CoV2) repository as a submodule, as there are several consistent errors in SARS-CoV-2 alignments that identify sites that should be removed from subsequent analyses (see: [Masking strategies for SARS-CoV-2 alignments](https://virological.org/t/masking-strategies-for-sars-cov-2-alignments/480)).
+This repository also contains the [ProblematicSites_SARS-CoV2](https://github.com/W-L/ProblematicSites_SARS-CoV2) repository as a subtree, as there are several consistent errors in SARS-CoV-2 alignments that identify sites that should be removed from subsequent analyses (see: [Masking strategies for SARS-CoV-2 alignments](https://virological.org/t/masking-strategies-for-sars-cov-2-alignments/480)).
 
 ## Installing pipeline as a conda environment
 
@@ -12,7 +12,7 @@ This pipeline uses genomics software to go from raw SARS-CoV-2 sequence data to 
 
 1. [BWA](http://bio-bwa.sourceforge.net/) for read mapping.
 2. [iVar](https://andersen-lab.github.io/ivar/html/) for variant calling.
-3. The aforementioned [ProblematicSites_SARS-CoV2](https://github.com/W-L/ProblematicSites_SARS-CoV2) and associated scripts for site masking.
+3. The aforementioned [ProblematicSites_SARS-CoV2](https://github.com/W-L/ProblematicSites_SARS-CoV2) and associated scripts for site masking, which are included in this repository as a subtree.
 4. [IQ-Tree](http://www.iqtree.org/) for phylogeny inference.
 5. [Pangolin](https://github.com/cov-lineages/pangolin) for lineage assignment.
 
