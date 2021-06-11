@@ -1,0 +1,13 @@
+name: UM_COV_TJT
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+dependencies:
+  - samtools
+  - multiqc
+  - bwa
+  - qualimap
+  - flash2
+  - fastp
+  - snakemake
