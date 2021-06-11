@@ -92,8 +92,10 @@ localrules: all
 
 rule all:
     input:
-        "processed_reads/QC/multiqc/multiqc_report_trimming.html",
-        "processed_reads/QC/multiqc/multiqc_report_final_bams.html"
+        "processed_reads/QC/multiqc/multiqc_report_trimming.html", # QC report on trimming
+        "processed_reads/QC/multiqc/multiqc_report_dedup_Picard.html", # QC report on dedup process
+        "processed_reads/QC/multiqc/multiqc_report_raw_bams.html", # QC report on raw bams
+        "processed_reads/QC/multiqc/multiqc_report_dedup_bams.html" # QC report on final bams
 
 
 ## trim_raw_reads : remove adaptors and low-quality bases
@@ -285,9 +287,8 @@ rule merge_sample_bams:
         samtools merge -t {resources.cpus} {output} {input.merged} {input.unmerged_pair} {input.nopair_fwd} {input.nopair_rev} 2> {log}
         """
 
-
-## index_deduped_bams: create bam indices for later realignment
-rule index_bams:
+## index_deduped_bams: index bams
+rule index_raw_bams:
     input:
         "processed_reads/per_sample_bams/{sample}.sorted.bam"
     output:
@@ -300,31 +301,102 @@ rule index_bams:
         """
 
 
-## qualimap_final_bam: run qualimap on final bam file
-# default options, only changed number of threads with -nt
-rule qualimap_final_bam:
+## remove_duplicates: remove duplicates with Picard
+# Remove duplicates with Picard. options:
+# REMOVE_DUPLICATES=true; remove duplicates, instead of default behavior (which outputs them and flags duplicated reads)
+rule remove_duplicates:
     input:
-        bam="processed_reads/per_sample_bams/{sample}.sorted.bam",
-        bai="processed_reads/per_sample_bams/{sample}.sorted.bam.bai"
+        "processed_reads/per_sample_bams/{sample}.sorted.bam"
     output:
-        "processed_reads/mapping_qc/qualimap/{sample}/qualimapReport.html"
+        bam="processed_reads/dedup/{sample}.sorted.bam",
+        metrics="logs/remove_duplicates/{sample}_dedup_metrics.txt"
+    log:
+        log="logs/remove_duplicates/{sample}_dedup_log.log"
     resources:
-        cpus=8
+        cpus=1
     shell:
         """
-        qualimap bamqc -bam {input.bam} -nt {resources.cpus} -outdir processed_reads/mapping_qc/qualimap/{wildcards.sample}/ -outformat html --java-mem-size=4G
+        picard MarkDuplicates INPUT={input} METRICS_FILE={output.metrics} OUTPUT={output.bam} REMOVE_DUPLICATES=true 2> {log.log}
         """
 
-## multiqc_final_bam_reports: collate qualimap reports on final bams
-rule multiqc_final_bam_reports:
+
+## multiqc_dedup_bam_report: collate qualimap reports on dedup bams
+rule multiqc_dedup_report:
     input:
-        expand("processed_reads/mapping_qc/qualimap/{sample}/qualimapReport.html", sample = samples)
+        expand("logs/remove_duplicates/{sample}_dedup_metrics.txt", sample = samples)
     output:
-        "processed_reads/QC/multiqc/multiqc_report_final_bams.html"
+        "processed_reads/QC/multiqc/multiqc_report_dedup_Picard.html"
     shell:
         """
-        multiqc processed_reads/mapping_qc -o processed_reads/QC/multiqc/ -n multiqc_report_final_bams.html
+        multiqc logs/remove_duplicates/ -o processed_reads/QC/multiqc/ -n multiqc_report_dedup_Picard.html
         """
     
 
 
+
+## index_deduped_bams: index bams
+rule index_dedup_bams:
+    input:
+        "processed_reads/dedup/{sample}.sorted.bam"
+    output:
+        "processed_reads/dedup/{sample}.sorted.bam.bai"
+    resources:
+        cpus=1
+    shell:
+        """
+        samtools index -b {input}
+        """
+
+
+## qualimap_final_bam: run qualimap on final bam file
+# default options, only changed number of threads with -nt
+rule qualimap_raw_bam:
+    input:
+        bam="processed_reads/per_sample_bams/{sample}.sorted.bam",
+        bai="processed_reads/per_sample_bams/{sample}.sorted.bam.bai"
+    output:
+        "processed_reads/QC/qualimap/raw_bams/{sample}/qualimapReport.html"
+    resources:
+        cpus=8
+    shell:
+        """
+        qualimap bamqc -bam {input.bam} -nt {resources.cpus} -outdir processed_reads/QC/qualimap/raw_bams/{wildcards.sample}/ -outformat html --java-mem-size=4G
+        """
+
+## qualimap_final_bam: run qualimap on final bam file
+# default options, only changed number of threads with -nt
+rule qualimap_dedup_bam:
+    input:
+        bam="processed_reads/dedup/{sample}.sorted.bam",
+        bai="processed_reads/dedup/{sample}.sorted.bam.bai"
+    output:
+        "processed_reads/QC/qualimap/dedup_bams/{sample}/qualimapReport.html"
+    resources:
+        cpus=8
+    shell:
+        """
+        qualimap bamqc -bam {input.bam} -nt {resources.cpus} -outdir processed_reads/QC/qualimap/dedup_bams/{wildcards.sample}/ -outformat html --java-mem-size=4G
+        """
+
+## multiqc_raw_bam_report: collate qualimap reports on raw bams
+rule multiqc_raw_bam_report:
+    input:
+        expand("processed_reads/QC/qualimap/raw_bams/{sample}/qualimapReport.html", sample = samples)
+    output:
+        "processed_reads/QC/multiqc/multiqc_report_raw_bams.html"
+    shell:
+        """
+        multiqc processed_reads/QC/qualimap/raw_bams -o processed_reads/QC/multiqc/ -n multiqc_report_raw_bams.html
+        """
+    
+## multiqc_dedup_bam_report: collate qualimap reports on dedup bams
+rule multiqc_dedup_bam_report:
+    input:
+        expand("processed_reads/QC/qualimap/dedup_bams/{sample}/qualimapReport.html", sample = samples)
+    output:
+        "processed_reads/QC/multiqc/multiqc_report_dedup_bams.html"
+    shell:
+        """
+        multiqc processed_reads/QC/qualimap/dedup_bams -o processed_reads/QC/multiqc/ -n multiqc_report_dedup_bams.html
+        """
+    

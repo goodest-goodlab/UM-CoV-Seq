@@ -11,3 +11,4 @@ dependencies:
   - flash2
   - fastp
   - snakemake
+  - picard
