@@ -9,6 +9,9 @@ RAW_DATA_FOLDER="/home/tt164677e/tim_beegfs/raw_read_data/SARS-CoV-2-06102021-Il
 # List the reference genome you want to map to:
 REF="/home/tt164677e/tim_beegfs/UM-CoV-Seq/SARS-CoV-2-refseq/GCF_009858895.2_ASM985889v3_genomic.fna"
 
+# List the GFF file you want to use:
+GFF="/home/tt164677e/tim_beegfs/UM-CoV-Seq/SARS-CoV-2-refseq/GCF_009858895.2_ASM985889v3_genomic.fna"
+
 #################################
 ## DO NOT EDIT BELOW THIS LINE ##
 ##  WHEN RUNNING THE PIPELINE  ##
@@ -37,9 +40,8 @@ for root, dirs, files in os.walk(RAW_DATA_FOLDER):
 samples = list(set(samples))
 samples.sort()
 
-# Get filename for the genome index
+# Get filename for the BWA genome index
 index_path= REF + ".amb"
-
 
 ######################
 ## HELPER FUNCTIONS ##
@@ -95,7 +97,9 @@ rule all:
         "processed_reads/QC/multiqc/multiqc_report_trimming.html", # QC report on trimming
         "processed_reads/QC/multiqc/multiqc_report_dedup_Picard.html", # QC report on dedup process
         "processed_reads/QC/multiqc/multiqc_report_raw_bams.html", # QC report on raw bams
-        "processed_reads/QC/multiqc/multiqc_report_dedup_bams.html" # QC report on final bams
+        "processed_reads/QC/multiqc/multiqc_report_dedup_bams.html", # QC report on final bams
+        expand("results/ivar/raw_bams/{sample}.fa", sample = samples),
+        expand("results/ivar/dedup_bams/{sample}.fa", sample = samples) # iVar test
 
 
 ## trim_raw_reads : remove adaptors and low-quality bases
@@ -110,16 +114,16 @@ rule all:
 # -l 25 Minimum length of 25 BP for the read
 # -w Number of cores
 # -h, -j Name of report HTML and JSON  output reports
-rule trim_and_raw_reads:
+rule trim_and_merge_raw_reads:
     input:
         raw_r1=get_R1_for_sample,
         raw_r2=get_R2_for_sample
     output:
         trim_merged="processed_reads/trimmed/{sample}.merged.fq.gz",
-        trim_r1_pair="processed_reads/trimmed/{sample}.nomerge.pair.R1.fq.qz",
-        trim_r2_pair="processed_reads/trimmed/{sample}.nomerge.pair.R2.fq.qz",
-        trim_r1_nopair="processed_reads/trimmed/{sample}.nopair.R1.fq.qz",
-        trim_r2_nopair="processed_reads/trimmed/{sample}.nopair.R2.fq.qz",
+        trim_r1_pair="processed_reads/trimmed/{sample}.nomerge.pair.R1.fq.gz",
+        trim_r2_pair="processed_reads/trimmed/{sample}.nomerge.pair.R2.fq.gz",
+        trim_r1_nopair="processed_reads/trimmed/{sample}.nopair.R1.fq.gz",
+        trim_r2_nopair="processed_reads/trimmed/{sample}.nopair.R2.fq.gz",
         rep_html="logs/fastp/{sample}_trim_fastp.html",
         rep_json="logs/fastp/{sample}_trim_fastp.json"
     resources:
@@ -200,8 +204,8 @@ rule map_merged_reads:
 #   -b output in bam format
 rule map_unmerged_pairs:
     input:
-        reads_forward="processed_reads/trimmed/{sample}.nomerge.pair.R1.fq.qz",
-        reads_reverse="processed_reads/trimmed/{sample}.nomerge.pair.R2.fq.qz",
+        reads_forward="processed_reads/trimmed/{sample}.nomerge.pair.R1.fq.gz",
+        reads_reverse="processed_reads/trimmed/{sample}.nomerge.pair.R2.fq.gz",
         genome=REF
     output:
         "processed_reads/mapped/{sample}.nomerge.paired.sorted.bam"
@@ -234,8 +238,8 @@ rule map_unmerged_pairs:
 #   -b output in bam format
 rule map_unmerged_unpaired:
     input:
-        reads_forward="processed_reads/trimmed/{sample}.nopair.R1.fq.qz",
-        reads_reverse="processed_reads/trimmed/{sample}.nopair.R2.fq.qz",
+        reads_forward="processed_reads/trimmed/{sample}.nopair.R1.fq.gz",
+        reads_reverse="processed_reads/trimmed/{sample}.nopair.R2.fq.gz",
         genome=REF
     output:
         mapped_forward = "processed_reads/mapped/{sample}.nopair.R1.sorted.bam",
@@ -269,7 +273,8 @@ rule map_unmerged_unpaired:
 ## merge_bams_by_sample : merge bam files by sample and run
 # merges bams across the 4 types of mapped reads (assembled, paired unassembled, and unpaired SEs)
 # for a given sample/lane/sequencing run combination
-# use samtools merge, -t is threads, rest is default
+# use samtools merge, -t is threads
+# -c merges identical readgroup headers, which our files from the same individual should have. 
 rule merge_sample_bams:
     input: 
         merged="processed_reads/mapped/{sample}.merged.sorted.bam",
@@ -284,7 +289,7 @@ rule merge_sample_bams:
         "processed_reads/per_sample_bams/{sample}.sorted.bam"
     shell:
         """
-        samtools merge -t {resources.cpus} {output} {input.merged} {input.unmerged_pair} {input.nopair_fwd} {input.nopair_rev} 2> {log}
+        samtools merge -c -t {resources.cpus} {output} {input.merged} {input.unmerged_pair} {input.nopair_fwd} {input.nopair_rev} 2> {log}
         """
 
 ## index_deduped_bams: index bams
@@ -400,3 +405,48 @@ rule multiqc_dedup_bam_report:
         multiqc processed_reads/QC/qualimap/dedup_bams -o processed_reads/QC/multiqc/ -n multiqc_report_dedup_bams.html
         """
     
+
+# Try calling ivar on everything
+rule ivar_raw_bams:
+    input:
+        sample = "processed_reads/per_sample_bams/{sample}.sorted.bam",
+        ref=REF,
+        gff=GFF
+    output:
+        fa="results/ivar/raw_bams/{sample}.fa",
+        qual="results/ivar/raw_bams/{sample}.qual.txt",
+        variants="results/ivar/raw_bams/{sample}.tsv"
+    params:
+        basename="results/ivar/raw_bams/{sample}"
+    shell:
+        """
+        # Call Variants
+        samtools mpileup -aa -A -d 0 -B -Q 0 --reference {input.ref} {input.sample} | ivar variants -p {params.basename} -q 20 -t 0.03 -m 5 -r {input.ref} -g {input.gff}
+
+        # Make Consensus sequence
+        samtools mpileup -d 1000 -A -Q 0 {input.sample} | ivar consensus -p {params.basename} -q 20 -t 0.5
+        """
+
+rule ivar_dedup_bams:
+    input:
+        sample = "processed_reads/dedup/{sample}.sorted.bam",
+        ref=REF,
+        gff=GFF
+    output:
+        fa="results/ivar/dedup_bams/{sample}.fa",
+        qual="results/ivar/dedup_bams/{sample}.qual.txt",
+        variants="results/ivar/dedup_bams/{sample}.tsv"
+    params:
+        basename="results/ivar/dedup_bams/{sample}"
+    shell:
+        """
+        # Call Variants
+        samtools mpileup -aa -A -d 0 -B -Q 0 --reference {input.ref} {input.sample} | ivar variants -p {params.basename} -q 20 -t 0.03 -m 5 -r {input.ref} -g {input.gff}
+
+        # Make Consensus sequence
+        samtools mpileup -d 1000 -A -Q 0 {input.sample} | ivar consensus -p {params.basename} -q 20 -t 0.5
+        """
+
+# Combined these fastas into one with cat
+# then run quick pangolin with:
+#pangolin --alignment results/ivar/dedup_bams/combined.fa -o results/pangolin/dedup_bams/

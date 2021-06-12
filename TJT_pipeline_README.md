@@ -72,7 +72,8 @@ I would recommend running the pipeline within `screen` or `tmux` or whatever, as
 
 1. Could prune the conda environment? Used fastp instead of Flash2 for read merging, so that dependency is unneeded. 
 2. There are some tools within `snakemake` that you can use to manage conda environments, such that one could in theory run the pipeline on any computer with both `snakemake` and `conda`, without installing or pre-loading the `UM_COV_TJT` conda environment. But I haven't figured that out yet. 
-3. More flexibility in input file names? .fasta/.fa/.fq, .gz or not?
-4. Mark all intermediate files as temp in snakemake, to save disk space?
+3. More flexibility in input file names? .fasta/.fa/.fastq/.fq, .gz or not?
+4. Mark all intermediate files as temp in snakemake, to save disk space? Not that useful now, would be good once its finalized. 
 5. Run Fastqc right at the start?
 6. More quality filtering during mapping? 
+7. Improve the readgroup function? pull the first line of the FASTA and parse it to get a little more info, instead of the pretty simple stuff I'm doing currently. 
