@@ -19,3 +19,12 @@ SARS-CoV-2-refseq/*.bwt
 SARS-CoV-2-refseq/*.pac
 SARS-CoV-2-refseq/*.sa
 SARS-CoV-2-refseq/*.fai
+.Rproj.user
+
+UM-CoV-Seq.Rproj
+
+.Rhistory
+
+.DS_Store
+
+temp_results/
