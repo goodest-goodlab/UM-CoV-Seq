@@ -98,8 +98,8 @@ rule all:
         "processed_reads/QC/multiqc/multiqc_report_dedup_Picard.html", # QC report on dedup process
         "processed_reads/QC/multiqc/multiqc_report_raw_bams.html", # QC report on raw bams
         "processed_reads/QC/multiqc/multiqc_report_dedup_bams.html", # QC report on final bams
-        expand("results/ivar/raw_bams/{sample}.fa", sample = samples),
-        expand("results/ivar/dedup_bams/{sample}.fa", sample = samples) # iVar test
+        "results/ivar/raw_bams/all_samples_consensus.fa",
+        "results/ivar/dedup_bams/all_samples_consensus.fa"
 
 
 ## trim_raw_reads : remove adaptors and low-quality bases
@@ -406,7 +406,29 @@ rule multiqc_dedup_bam_report:
         """
     
 
-# Try calling ivar on everything
+## ivar_raw_bams: Call variants and make consensus seqs for the raw bams
+# samtools mipileup into ivar 
+# samtools options for variants:
+# -aa Output all positions, including unused reference sequences
+# -A Count orphans
+# -d 0 no max depth limit
+# -B disable BAQ computation
+# -Q 0 No minimum base quality
+
+# iVar options for variant calling
+# -q 20 Min quality 20
+# -t 0.03 minimum frequency to call variant
+# -m 5 min 5 reads to call variant
+
+# samtools options for consensus:
+# -A Count orphans
+# -d 1000 max depth of 1000 reads
+# -Q 0 No minimum base quality
+
+# iVar Options for consensus:
+# -q 20 min quality 20
+# -t 0.5 50% of reads needed for calling consensus base
+
 rule ivar_raw_bams:
     input:
         sample = "processed_reads/per_sample_bams/{sample}.sorted.bam",
@@ -427,6 +449,8 @@ rule ivar_raw_bams:
         samtools mpileup -d 1000 -A -Q 0 {input.sample} | ivar consensus -p {params.basename} -q 20 -t 0.5
         """
 
+## ivar_dedup_bams: Call variants and make consensus seqs for the raw bams
+# See step above for explanation of all options. 
 rule ivar_dedup_bams:
     input:
         sample = "processed_reads/dedup/{sample}.sorted.bam",
@@ -446,7 +470,27 @@ rule ivar_dedup_bams:
         # Make Consensus sequence
         samtools mpileup -d 1000 -A -Q 0 {input.sample} | ivar consensus -p {params.basename} -q 20 -t 0.5
         """
+## combine_raw_consensus: combine sample fastas into one file
+rule combine_raw_consensus:
+    input:
+        expand("results/ivar/raw_bams/{sample}.fa", sample = samples)
+    output:
+        "results/ivar/raw_bams/all_samples_consensus.fa"
+    shell:
+        """
+        cat results/ivar/raw_bams/*.fa > {output}
+        """
 
-# Combined these fastas into one with cat
+## combine_dedup_consensus: combine sample fastas into one file
+rule combine_dedup_consensus:
+    input:
+        expand("results/ivar/dedup_bams/{sample}.fa", sample = samples)
+    output:
+        "results/ivar/dedup_bams/all_samples_consensus.fa"
+    shell:
+        """
+        cat results/ivar/dedup_bams/*.fa > {output}
+        """
+
 # then run quick pangolin with:
 #pangolin --alignment results/ivar/dedup_bams/combined.fa -o results/pangolin/dedup_bams/
