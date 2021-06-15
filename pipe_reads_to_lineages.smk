@@ -66,8 +66,6 @@ def get_R2_for_sample(wildcards):
                 outfile = filename
     return outfile
 
-
-
 # A function to create a readgroup for BWA from the sample, lane, and run info
 def make_RG(wildcards):
     for filename in fasta_fullpath:
@@ -87,6 +85,7 @@ def make_RG(wildcards):
     rg_out = "@RG\\tID:" + sample_ID + sample_num + "\\tLB:" + sample_ID + "\\tPL:ILLUMINA" + "\\tSM:" + sample_ID
     return rg_out
 
+
 ####################
 ## PIPELINE START ##
 ####################
@@ -94,13 +93,15 @@ localrules: all
 
 rule all:
     input:
-        "processed_reads/QC/multiqc/multiqc_report_trimming.html", # QC report on trimming
-        "processed_reads/QC/multiqc/multiqc_report_dedup_Picard.html", # QC report on dedup process
-        "processed_reads/QC/multiqc/multiqc_report_raw_bams.html", # QC report on raw bams
-        "processed_reads/QC/multiqc/multiqc_report_dedup_bams.html", # QC report on final bams
-        "results/ivar/raw_bams/all_samples_consensus.fa",
-        "results/ivar/dedup_bams/all_samples_consensus.fa"
+        "results/multiqc/multiqc_report_trimming.html", # QC report on trimming
+        "results/multiqc/multiqc_report_raw_bams.html", # QC report on raw bams
+        "results/ivar/raw_bams/all_samples_consensus.fasta", # consensus of all samples for iVar
+        "results/ivar/raw_bams/all_samples_consensus_stats.txt", # stats on consensus sequences
+        "results/pangolin/raw_bams/lineage_report.csv" # lineage report of all samples
 
+
+
+## QC on raw reads??
 
 ## trim_raw_reads : remove adaptors and low-quality bases
 # Uses fastp. Options:
@@ -114,6 +115,7 @@ rule all:
 # -l 25 Minimum length of 25 BP for the read
 # -w Number of cores
 # -h, -j Name of report HTML and JSON  output reports
+
 rule trim_and_merge_raw_reads:
     input:
         raw_r1=get_R1_for_sample,
@@ -142,10 +144,10 @@ rule multiqc_trim_reports:
     input:
         expand("logs/fastp/{sample}_trim_fastp.json", sample = samples)
     output:
-        "processed_reads/QC/multiqc/multiqc_report_trimming.html"
+        "results/multiqc/multiqc_report_trimming.html"
     shell:
         """
-        multiqc logs/fastp -o processed_reads/QC/multiqc/ -n multiqc_report_trimming.html
+        multiqc -f logs/fastp -o results/multiqc/ -n multiqc_report_trimming.html
         """
 
 ## index_ref: index genome for BWA
@@ -185,13 +187,7 @@ rule map_merged_reads:
     shell:
         """
         # Run bwa mem, pipe to samtools view to convert to bam, save as a tmp.bam
-        bwa mem -M -t {resources.cpus} -R '{params.read_group}' {input.genome} {input.reads} 2> {log} | samtools view -b - > {params.basename}.merged.unsorted.tmp.bam
-
-        # then sort
-        samtools sort {params.basename}.merged.unsorted.tmp.bam -o {output}
-
-        # Then remove the intermediate, unsorted .bam
-        rm {params.basename}.merged.unsorted.tmp.bam
+        bwa mem -M -t {resources.cpus} -R '{params.read_group}' {input.genome} {input.reads} 2> {log} | samtools view -b - | samtools sort - -o {output}
         """
 
 # # map_unmerged_pairs: map trimmed, not merged, paired reads to reference
@@ -218,14 +214,8 @@ rule map_unmerged_pairs:
         cpus=24
     shell:
         """
-        # Run bwa mem, pipe to samtools view to convert to bam, save as a tmp.bam
-        bwa mem -M -t {resources.cpus} -R '{params.read_group}' {input.genome} {input.reads_forward} {input.reads_reverse} 2> {log} | samtools view -b - > {params.basename}_nomerge.paired.unsorted.tmp.bam
-
-        # then sort
-        samtools sort {params.basename}_nomerge.paired.unsorted.tmp.bam -o {output}
-
-        # Then remove the intermediate, unsorted .bam
-        rm {params.basename}_nomerge.paired.unsorted.tmp.bam
+        # Run bwa mem, pipe to samtools view to convert to bam, pipe to samtools sort 
+        bwa mem -M -t {resources.cpus} -R '{params.read_group}' {input.genome} {input.reads_forward} {input.reads_reverse} 2> {log} | samtools view -b - | samtools sort - -o {output}
         """
 
 ## map_unmerged_unpaired: map trimmed, unmerged, unpaired reads to reference
@@ -254,20 +244,12 @@ rule map_unmerged_unpaired:
         cpus=8
     shell:
         """
-        
         # Run bwa mem, pipe to samtools view to convert to bam, save as a tmp.bam
         # Read 1
-        bwa mem -M -t {resources.cpus} -R '{params.read_group}' {input.genome} {input.reads_forward} 2> {log.forward} | samtools view -b - > {params.basename}_nopair.R1.unsorted.tmp.bam
+        bwa mem -M -t {resources.cpus} -R '{params.read_group}' {input.genome} {input.reads_forward} 2> {log.forward} | samtools view -b - | samtools sort - -o {output.mapped_forward}
+
         # Read 2
-        bwa mem -M -t {resources.cpus} -R '{params.read_group}' {input.genome} {input.reads_reverse} 2> {log.rev} | samtools view -b - > {params.basename}_nopair.R2.unsorted.tmp.bam
-
-        # then sort
-        samtools sort {params.basename}_nopair.R1.unsorted.tmp.bam -o {output.mapped_forward}
-        samtools sort {params.basename}_nopair.R2.unsorted.tmp.bam -o {output.mapped_reverse}
-
-        # Then remove the intermediate, unsorted .bam
-        rm {params.basename}_nopair.R1.unsorted.tmp.bam
-        rm {params.basename}_nopair.R2.unsorted.tmp.bam
+        bwa mem -M -t {resources.cpus} -R '{params.read_group}' {input.genome} {input.reads_reverse} 2> {log.rev} | samtools view -b - | samtools sort - -o {output.mapped_reverse}
         """
 
 ## merge_bams_by_sample : merge bam files by sample and run
@@ -292,7 +274,7 @@ rule merge_sample_bams:
         samtools merge -c -t {resources.cpus} {output} {input.merged} {input.unmerged_pair} {input.nopair_fwd} {input.nopair_rev} 2> {log}
         """
 
-## index_deduped_bams: index bams
+## index_raw_bams: index bams
 rule index_raw_bams:
     input:
         "processed_reads/per_sample_bams/{sample}.sorted.bam"
@@ -305,55 +287,7 @@ rule index_raw_bams:
         samtools index -b {input}
         """
 
-
-## remove_duplicates: remove duplicates with Picard
-# Remove duplicates with Picard. options:
-# REMOVE_DUPLICATES=true; remove duplicates, instead of default behavior (which outputs them and flags duplicated reads)
-rule remove_duplicates:
-    input:
-        "processed_reads/per_sample_bams/{sample}.sorted.bam"
-    output:
-        bam="processed_reads/dedup/{sample}.sorted.bam",
-        metrics="logs/remove_duplicates/{sample}_dedup_metrics.txt"
-    log:
-        log="logs/remove_duplicates/{sample}_dedup_log.log"
-    resources:
-        cpus=1
-    shell:
-        """
-        picard MarkDuplicates INPUT={input} METRICS_FILE={output.metrics} OUTPUT={output.bam} REMOVE_DUPLICATES=true 2> {log.log}
-        """
-
-
-## multiqc_dedup_bam_report: collate qualimap reports on dedup bams
-rule multiqc_dedup_report:
-    input:
-        expand("logs/remove_duplicates/{sample}_dedup_metrics.txt", sample = samples)
-    output:
-        "processed_reads/QC/multiqc/multiqc_report_dedup_Picard.html"
-    shell:
-        """
-        multiqc logs/remove_duplicates/ -o processed_reads/QC/multiqc/ -n multiqc_report_dedup_Picard.html
-        """
-    
-
-
-
-## index_deduped_bams: index bams
-rule index_dedup_bams:
-    input:
-        "processed_reads/dedup/{sample}.sorted.bam"
-    output:
-        "processed_reads/dedup/{sample}.sorted.bam.bai"
-    resources:
-        cpus=1
-    shell:
-        """
-        samtools index -b {input}
-        """
-
-
-## qualimap_final_bam: run qualimap on final bam file
+## qualimap_raw_bam: run qualimap on raw bam file
 # default options, only changed number of threads with -nt
 rule qualimap_raw_bam:
     input:
@@ -368,44 +302,17 @@ rule qualimap_raw_bam:
         qualimap bamqc -bam {input.bam} -nt {resources.cpus} -outdir processed_reads/QC/qualimap/raw_bams/{wildcards.sample}/ -outformat html --java-mem-size=4G
         """
 
-## qualimap_final_bam: run qualimap on final bam file
-# default options, only changed number of threads with -nt
-rule qualimap_dedup_bam:
-    input:
-        bam="processed_reads/dedup/{sample}.sorted.bam",
-        bai="processed_reads/dedup/{sample}.sorted.bam.bai"
-    output:
-        "processed_reads/QC/qualimap/dedup_bams/{sample}/qualimapReport.html"
-    resources:
-        cpus=8
-    shell:
-        """
-        qualimap bamqc -bam {input.bam} -nt {resources.cpus} -outdir processed_reads/QC/qualimap/dedup_bams/{wildcards.sample}/ -outformat html --java-mem-size=4G
-        """
-
 ## multiqc_raw_bam_report: collate qualimap reports on raw bams
 rule multiqc_raw_bam_report:
     input:
         expand("processed_reads/QC/qualimap/raw_bams/{sample}/qualimapReport.html", sample = samples)
     output:
-        "processed_reads/QC/multiqc/multiqc_report_raw_bams.html"
+        "results/multiqc/multiqc_report_raw_bams.html"
     shell:
         """
-        multiqc processed_reads/QC/qualimap/raw_bams -o processed_reads/QC/multiqc/ -n multiqc_report_raw_bams.html
+        multiqc -f processed_reads/QC/qualimap/raw_bams -o results/multiqc/ -n multiqc_report_raw_bams.html
         """
     
-## multiqc_dedup_bam_report: collate qualimap reports on dedup bams
-rule multiqc_dedup_bam_report:
-    input:
-        expand("processed_reads/QC/qualimap/dedup_bams/{sample}/qualimapReport.html", sample = samples)
-    output:
-        "processed_reads/QC/multiqc/multiqc_report_dedup_bams.html"
-    shell:
-        """
-        multiqc processed_reads/QC/qualimap/dedup_bams -o processed_reads/QC/multiqc/ -n multiqc_report_dedup_bams.html
-        """
-    
-
 ## ivar_raw_bams: Call variants and make consensus seqs for the raw bams
 # samtools mipileup into ivar 
 # samtools options for variants:
@@ -428,7 +335,6 @@ rule multiqc_dedup_bam_report:
 # iVar Options for consensus:
 # -q 20 min quality 20
 # -t 0.5 50% of reads needed for calling consensus base
-
 rule ivar_raw_bams:
     input:
         sample = "processed_reads/per_sample_bams/{sample}.sorted.bam",
@@ -449,48 +355,145 @@ rule ivar_raw_bams:
         samtools mpileup -d 1000 -A -Q 0 {input.sample} | ivar consensus -p {params.basename} -q 20 -t 0.5
         """
 
-## ivar_dedup_bams: Call variants and make consensus seqs for the raw bams
-# See step above for explanation of all options. 
-rule ivar_dedup_bams:
-    input:
-        sample = "processed_reads/dedup/{sample}.sorted.bam",
-        ref=REF,
-        gff=GFF
-    output:
-        fa="results/ivar/dedup_bams/{sample}.fa",
-        qual="results/ivar/dedup_bams/{sample}.qual.txt",
-        variants="results/ivar/dedup_bams/{sample}.tsv"
-    params:
-        basename="results/ivar/dedup_bams/{sample}"
-    shell:
-        """
-        # Call Variants
-        samtools mpileup -aa -A -d 0 -B -Q 0 --reference {input.ref} {input.sample} | ivar variants -p {params.basename} -q 20 -t 0.03 -m 5 -r {input.ref} -g {input.gff}
 
-        # Make Consensus sequence
-        samtools mpileup -d 1000 -A -Q 0 {input.sample} | ivar consensus -p {params.basename} -q 20 -t 0.5
-        """
 ## combine_raw_consensus: combine sample fastas into one file
 rule combine_raw_consensus:
     input:
         expand("results/ivar/raw_bams/{sample}.fa", sample = samples)
     output:
-        "results/ivar/raw_bams/all_samples_consensus.fa"
+        "results/ivar/raw_bams/all_samples_consensus.fasta"
     shell:
         """
         cat results/ivar/raw_bams/*.fa > {output}
         """
 
-## combine_dedup_consensus: combine sample fastas into one file
-rule combine_dedup_consensus:
+## calc_num_N: calculate number of N for each sample
+rule calc_num_N:
     input:
-        expand("results/ivar/dedup_bams/{sample}.fa", sample = samples)
+        "results/ivar/raw_bams/all_samples_consensus.fasta"
     output:
-        "results/ivar/dedup_bams/all_samples_consensus.fa"
+        "results/ivar/raw_bams/all_samples_consensus_stats.txt"
     shell:
         """
-        cat results/ivar/dedup_bams/*.fa > {output}
+        python src/count_consensus_Ns.py -i {input} -o {output}
         """
 
-# then run quick pangolin with:
-#pangolin --alignment results/ivar/dedup_bams/combined.fa -o results/pangolin/dedup_bams/
+## pangolin_assign_lineage: assign consensus seqs to lineages
+rule pangolin_assign_lineage:
+    input:
+        "results/ivar/raw_bams/all_samples_consensus.fasta"
+    output:
+        "results/pangolin/raw_bams/lineage_report.csv"
+    shell:
+        """
+        pangolin --alignment {input} -o results/pangolin/raw_bams/
+        """
+
+
+##########################
+## OLD RULES WITH DEDUP ##
+##########################
+
+## remove_duplicates: remove duplicates with Picard
+# Remove duplicates with Picard. options:
+# REMOVE_DUPLICATES=true; remove duplicates, instead of default behavior (which outputs them and flags duplicated reads)
+# rule remove_duplicates:
+#     input:
+#         "processed_reads/per_sample_bams/{sample}.sorted.bam"
+#     output:
+#         bam="processed_reads/dedup/{sample}.sorted.bam",
+#         metrics="logs/remove_duplicates/{sample}_dedup_metrics.txt"
+#     log:
+#         log="logs/remove_duplicates/{sample}_dedup_log.log"
+#     resources:
+#         cpus=1
+#     shell:
+#         """
+#         picard MarkDuplicates INPUT={input} METRICS_FILE={output.metrics} OUTPUT={output.bam} REMOVE_DUPLICATES=true 2> {log.log}
+#         """
+
+
+# ## multiqc_dedup_bam_report: collate qualimap reports on dedup bams
+# rule multiqc_dedup_report:
+#     input:
+#         expand("logs/remove_duplicates/{sample}_dedup_metrics.txt", sample = samples)
+#     output:
+#         "processed_reads/QC/multiqc/multiqc_report_dedup_Picard.html"
+#     shell:
+#         """
+#         multiqc logs/remove_duplicates/ -o processed_reads/QC/multiqc/ -n multiqc_report_dedup_Picard.html
+#         """
+    
+# ## index_deduped_bams: index bams
+# rule index_dedup_bams:
+#     input:
+#         "processed_reads/dedup/{sample}.sorted.bam"
+#     output:
+#         "processed_reads/dedup/{sample}.sorted.bam.bai"
+#     resources:
+#         cpus=1
+#     shell:
+#         """
+#         samtools index -b {input}
+#         """
+
+# ## qualimap_final_bam: run qualimap on final bam file
+# # default options, only changed number of threads with -nt
+# rule qualimap_dedup_bam:
+#     input:
+#         bam="processed_reads/dedup/{sample}.sorted.bam",
+#         bai="processed_reads/dedup/{sample}.sorted.bam.bai"
+#     output:
+#         "processed_reads/QC/qualimap/dedup_bams/{sample}/qualimapReport.html"
+#     resources:
+#         cpus=8
+#     shell:
+#         """
+#         qualimap bamqc -bam {input.bam} -nt {resources.cpus} -outdir processed_reads/QC/qualimap/dedup_bams/{wildcards.sample}/ -outformat html --java-mem-size=4G
+#         """
+
+# ## multiqc_dedup_bam_report: collate qualimap reports on dedup bams
+# rule multiqc_dedup_bam_report:
+#     input:
+#         expand("processed_reads/QC/qualimap/dedup_bams/{sample}/qualimapReport.html", sample = samples)
+#     output:
+#         "processed_reads/QC/multiqc/multiqc_report_dedup_bams.html"
+#     shell:
+#         """
+#         multiqc processed_reads/QC/qualimap/dedup_bams -o processed_reads/QC/multiqc/ -n multiqc_report_dedup_bams.html
+#         """
+    
+
+# ## ivar_dedup_bams: Call variants and make consensus seqs for the raw bams
+# # See step above for explanation of all options. 
+# rule ivar_dedup_bams:
+#     input:
+#         sample = "processed_reads/dedup/{sample}.sorted.bam",
+#         ref=REF,
+#         gff=GFF
+#     output:
+#         fa="results/ivar/dedup_bams/{sample}.fa",
+#         qual="results/ivar/dedup_bams/{sample}.qual.txt",
+#         variants="results/ivar/dedup_bams/{sample}.tsv"
+#     params:
+#         basename="results/ivar/dedup_bams/{sample}"
+#     shell:
+#         """
+#         # Call Variants
+#         samtools mpileup -aa -A -d 0 -B -Q 0 --reference {input.ref} {input.sample} | ivar variants -p {params.basename} -q 20 -t 0.03 -m 5 -r {input.ref} -g {input.gff}
+
+#         # Make Consensus sequence
+#         samtools mpileup -d 1000 -A -Q 0 {input.sample} | ivar consensus -p {params.basename} -q 20 -t 0.5
+#         """
+
+
+# ## combine_dedup_consensus: combine sample fastas into one file
+# rule combine_dedup_consensus:
+#     input:
+#         expand("results/ivar/dedup_bams/{sample}.fa", sample = samples)
+#     output:
+#         "results/ivar/dedup_bams/all_samples_consensus.fa"
+#     shell:
+#         """
+#         cat results/ivar/dedup_bams/*.fa > {output}
+#         """

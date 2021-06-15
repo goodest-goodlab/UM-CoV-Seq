@@ -28,3 +28,4 @@ UM-CoV-Seq.Rproj
 .DS_Store
 
 temp_results/
+temp_results_dedup/*
