@@ -1,1 +1,31 @@
 *.code-workspace
+
+# Snakemake hidden files
+.snakemake/
+
+# Log files
+logs/*
+
+# Processed data files
+processed_reads/*
+
+# Results files
+results/*
+
+# Genome Index files
+SARS-CoV-2-refseq/*.amb
+SARS-CoV-2-refseq/*.ann
+SARS-CoV-2-refseq/*.bwt
+SARS-CoV-2-refseq/*.pac
+SARS-CoV-2-refseq/*.sa
+SARS-CoV-2-refseq/*.fai
+.Rproj.user
+
+UM-CoV-Seq.Rproj
+
+.Rhistory
+
+.DS_Store
+
+temp_results/
+temp_results_dedup/*
