@@ -81,3 +81,4 @@ I would recommend running the pipeline within `screen` or `tmux` or whatever, as
 5. More quality filtering during mapping? 
 6. Improve the readgroup function? pull the first line of the FASTA and parse it to get a little more info, instead of the pretty simple stuff I'm doing currently.
 
+Some minor edits to test my branch.
