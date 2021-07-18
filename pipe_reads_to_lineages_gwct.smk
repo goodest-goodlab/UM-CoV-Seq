@@ -2,19 +2,24 @@
 ##   EDIT BEFORE RUNNING  ##
 ############################
 
-# List the directory in which you would like all output for a given batch to be created
-# Probably best to keep a consistent naming scheme, e.g.:
-# "batch_XXXXXX/", keeping the "batch_" constant and adding whatever you want in the XXXs
-# Also, makes the .gitignore stuff easier to avoid tracking all the extra files
-# But, you can technically name the directory anything you want. 
-#BATCH_OUT = "snakemake_test-10"
-
-# The sample file with barcods, UMGC IDs, data source, and MiSeq run ID.
-SAMPLE_FILE = "/mnt/beegfs/gt156213e/UM-CoV-Seq/Master-ID-List_For-UMGC-WGS-Samples_20210713_DX.csv"
-
 # The name of the batch based on the MiSeq run ID found in the sample file. Should also be present
 # in the raw data directory since this is how we identify that directory.
 BATCH_NAME = "V3P67";
+# Batch 1, received 06.10.2021: V3P67 : runtime with 20 cores: 2913.04 seconds (49 mins)
+# Batch 2, received 07.15.2021: V4R1  : runtime with 20 cores: 2201.23 seconds (37 mins)
+
+#################################
+## DO NOT EDIT BELOW THIS LINE ##
+##  WHEN RUNNING THE PIPELINE  ##
+#################################
+
+
+#################
+##   GLOBALS   ##
+################# 
+
+# The sample file with barcods, UMGC IDs, data source, and MiSeq run ID.
+SAMPLE_FILE = "/mnt/beegfs/gt156213e/UM-CoV-Seq/data/Master-ID-List_For-UMGC-WGS-Samples_20210713_DX.csv"
 
 # List the directory containing subdirectories for all sequence batches. The exact directory for this
 # batch will be determined by the BATCH_NAME.
@@ -24,12 +29,9 @@ BASE_DATA_FOLDER = "/mnt/beegfs/gt156213e/UM-CoV-Seq/data/"
 REF = "/mnt/beegfs/gt156213e/UM-CoV-Seq/SARS-CoV-2-refseq/GCF_009858895.2_ASM985889v3_genomic.fna"
 
 # List the GFF file you want to use:
-GFF="/mnt/beegfs/gt156213e/UM-CoV-Seq/SARS-CoV-2-refseq/GCF_009858895.2_ASM985889v3_genomic.gff"
+GFF = "/mnt/beegfs/gt156213e/UM-CoV-Seq/SARS-CoV-2-refseq/GCF_009858895.2_ASM985889v3_genomic.gff"
 
-#################################
-## DO NOT EDIT BELOW THIS LINE ##
-##  WHEN RUNNING THE PIPELINE  ##
-#################################
+BASE_BATCH_DIR = os.path.normpath(os.path.join("results", BATCH_NAME));
 
 
 ###############
@@ -47,7 +49,7 @@ indirs = os.listdir(BASE_DATA_FOLDER);
 for indir in indirs:
     if BATCH_NAME in indir:
         RAW_DATA_FOLDER = os.path.join(BASE_DATA_FOLDER, indir);
-print(RAW_DATA_FOLDER);
+print("FOUND INPUT FOLDER: " + RAW_DATA_FOLDER);
 
 # Pull all sample files from the raw data folder
 # get filenames of the individual fastas
@@ -63,7 +65,7 @@ for root, dirs, files in os.walk(RAW_DATA_FOLDER):
 samples = list(set(samples))
 samples.sort()
 
-# # Associate the barcode id with the actual sample id
+# # Associate the barcode id with the actual sample id... don't think we'll need this
 # samples_dict = {};
 # with open(SAMPLE_FILE) as csv_file:
 #     csv_reader = csv.reader(csv_file, delimiter=',', quotechar='"');
@@ -147,11 +149,12 @@ onstart:
         writer.writerow(["GFF file used:", GFF])
         writer.writerow(["Copy of snakefile used stored at:", "figuring out"])
 
-
+# all: The rule that looks for the final desired output files to initiate running all rules to generate those files.
 rule all:
     input:
         bd("results/multiqc/multiqc_report_trimming.html"), # QC report on trimming
-        bd("results/summary.csv") # Final summary of the rest of the results
+        bd(BATCH_NAME + "-summary.csv"), # Final summary of the rest of the results
+        bd("gisaid/gisaid.fa") # The fasta file to upload to gisaid with UMGC samples IDs instead of barcodes
 
 ## QC on raw reads??
 
@@ -206,15 +209,16 @@ rule multiqc_trim_reports:
 
 ## index_ref: index genome for BWA
 # Index the reference genome, if it isn't already
-rule index_ref:
-    input:
-        REF
-    output:
-        multiext(REF, ".amb", ".ann", ".bwt", ".pac", ".sa")    
-    shell:
-        """
-        bwa index {input}
-        """
+# rule index_ref:
+#     input:
+#         REF
+#     output:
+#         multiext(REF, ".amb", ".ann", ".bwt", ".pac", ".sa")    
+#     shell:
+#         """
+#         bwa index {input}
+#         """
+# multiext isn't working anymore??
 
 ## map_merged_reads: map trimmed, merged reads to reference
 #   BWA mem algorithm. Settings:
@@ -393,8 +397,8 @@ rule pileup:
         sample = bd("processed_reads/per_sample_bams/{sample}.sorted.bam"),
         ref=REF
     output:
-        var_pileup = bd("pileup/{sample}-var.pileup"),
-        cons_pileup = bd("pileup/{sample}-cons.pileup")
+        var_pileup = bd("results/pileup/{sample}-var.pileup"),
+        cons_pileup = bd("results/pileup/{sample}-cons.pileup")
     shell:
         """
         samtools mpileup -aa -A -d 0 -B -Q 0 --reference {input.ref} {input.sample} > {output.var_pileup}
@@ -406,11 +410,11 @@ rule pileup:
 # positions to the reference base, preventing variants from being called.
 rule mask_pileup:
     input:
-        var_pileup = bd("pileup/{sample}-var.pileup"),
-        cons_pileup = bd("pileup/{sample}-cons.pileup")       
+        var_pileup = bd("results/pileup/{sample}-var.pileup"),
+        cons_pileup = bd("results/pileup/{sample}-cons.pileup")       
     output:
-        masked_var_pileup = bd("pileup/{sample}-var.masked.pileup"),
-        masked_cons_pileup = bd("pileup/{sample}-cons.masked.pileup")
+        masked_var_pileup = bd("results/pileup/{sample}-var.masked.pileup"),
+        masked_cons_pileup = bd("results/pileup/{sample}-cons.masked.pileup")
     shell:
         """
         python lib/mask_pileup.py {input.var_pileup} {output.masked_var_pileup}
@@ -431,8 +435,8 @@ rule mask_pileup:
 # -t 0.5 50% of reads needed for calling consensus base
 rule ivar_raw_bams:
     input:
-        masked_var_pileup = bd("pileup/{sample}-var.masked.pileup"),
-        masked_cons_pileup = bd("pileup/{sample}-cons.masked.pileup"),
+        masked_var_pileup = bd("results/pileup/{sample}-var.masked.pileup"),
+        masked_cons_pileup = bd("results/pileup/{sample}-cons.masked.pileup"),
         sample = bd("processed_reads/per_sample_bams/{sample}.sorted.bam"),
         ref=REF,
         gff=GFF
@@ -450,6 +454,7 @@ rule ivar_raw_bams:
         # Make Consensus sequence
         cat {input.masked_cons_pileup} | ivar consensus -p {params.basename} -q 20 -t 0.5 -m 10
         """
+
 ## gatk_haplotypecaller: Call variants with GATK. Emit all sites (-ERC GVCF) for genotyping
 # and masking low quality sites called as ./.
 rule gatk_haplotypecaller:
@@ -558,8 +563,8 @@ rule calc_num_N:
         ivar_cons = bd("results/ivar/all_samples_consensus.fasta"),
         gatk_cons = bd("results/gatk/all_samples_consensus.fasta")
     output:
-        ivar_stats = bd("results/ivar/all_samples_consensus_stats.txt"),
-        gatk_stats = bd("results/gatk/all_samples_consensus_stats.txt")
+        ivar_stats = bd("results/ivar/all_samples_consensus_stats.csv"),
+        gatk_stats = bd("results/gatk/all_samples_consensus_stats.csv")
     shell:
         """
         python lib/consensus_stats.py {input.ivar_cons} ivar {output.ivar_stats}
@@ -615,22 +620,41 @@ rule nextclade_assign_clade:
 ## summarize_results: Combine all summary tables and generate main table and GISAID table.
 rule summarize_results:
     input:
-        ivar_stats = bd("results/ivar/all_samples_consensus_stats.txt"),
-        gatk_stats = bd("results/gatk/all_samples_consensus_stats.txt"),
+        sample_file = SAMPLE_FILE,
         multiqc = bd("results/multiqc/multiqc_report_raw_bams_data/multiqc_general_stats.txt"),
         vcf = expand(bd("results/gatk/{sample}.masked.fvcf.gz"), sample = samples),
         variants = expand(bd("results/ivar/{sample}.tsv"), sample = samples),
+        ivar_stats = bd("results/ivar/all_samples_consensus_stats.csv"),
+        gatk_stats = bd("results/gatk/all_samples_consensus_stats.csv"),
         ivar_pangolin = bd("results/ivar-pangolin/lineage_report.csv"),
         gatk_pangolin = bd("results/gatk-pangolin/lineage_report.csv"),
         ivar_nextclade = bd("results/ivar-nextclade/nextclade_report.tsv"),
         gatk_nextclade = bd("results/gatk-nextclade/nextclade_report.tsv")
     output:
-        bd("results/summary.csv")
+        bd(BATCH_NAME + "-summary.csv")
     params:
-        var_dir = bd("results/ivar/"),
-        vcf_dir = bd("results/gatk/")
+        batch = BATCH_NAME,
+        batch_dir = BASE_BATCH_DIR + "/",
+        ivar_dir = bd("results/ivar/"),
+        gatk_dir = bd("results/gatk/")
     shell:
         """
-        Rscript src/compile_results.R {input.ivar_stats} {input.multiqc} {params.var_dir} {input.ivar_pangolin} {input.ivar_nextclade} {params.vcf_dir} {output}
+        Rscript lib/compile_results.R {input.sample_file} {params.batch} {params.batch_dir} {input.multiqc} {params.ivar_dir} {params.gatk_dir} {input.ivar_stats} {input.gatk_stats} {input.ivar_pangolin} {input.gatk_pangolin} {input.ivar_nextclade} {input.gatk_nextclade}
         """
-## MUST HAVE dplyr, stringr, AND tidyr
+
+## gisaid_seqs: Combine sequences with GISAID headers
+rule gisaid_seqs:
+    input:
+        sample_file = SAMPLE_FILE,
+        summary_file = bd(BATCH_NAME + "-summary.csv")
+    params:
+        batch = BATCH_NAME,
+        ivar_dir = bd("results/ivar/")
+    output:
+        gisaid_file = bd("gisaid/gisaid.fa")
+    shell:
+        """
+        python lib/gisaid_seq.py {params.ivar_dir} {params.batch} {input.sample_file} {input.summary_file} {output.gisaid_file}
+        """
+
+############################################################
