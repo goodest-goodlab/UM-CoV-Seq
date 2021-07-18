@@ -74,11 +74,20 @@ I would recommend running the pipeline within `screen` or `tmux` or whatever, as
 
 # TODOs
 
-1. There are some tools within `snakemake` that you can use to manage conda environments, such that one could in theory run the pipeline on any computer with both `snakemake` and `conda`/`mamba`, without installing or pre-loading my conda environment. Not sure how useful that is, though: setting up the environment in advance isn't that hard.
-2. Allow more flexibility in input file names? .fasta/.fa/.fastq/.fq, .gz or not? Right now, just works on files with `.fastq.gz` as their extension.
-3. Mark all intermediate files as temp in snakemake, to save disk space? Not that useful now, maybe once it is finalized?
-4. Run Fastqc right at the start?
-5. More quality filtering during mapping? 
-6. Improve the readgroup function? pull the first line of the FASTA and parse it to get a little more info, instead of the pretty simple stuff I'm doing currently.
+1. Make a config file for specifying the raw data, batch, ref genome, etc. 
+2. Check that sequencing raw data folder exists, exit the snakemake if it doesn't
+3. Improve the readgroup function? pull the first line of the FASTA and parse it to get a little more info, instead of the pretty simple stuff I'm doing currently.
+4. Figure out how to copy the used snakefile into the results folder for each batch.
+5. Fix base filename params in various rules, infer them from the output filename instead of hard-coding? Snakemake linter prefers this.
+6. Add log files to any rule without logs, so that important stuff isn't saved in the slurm logs. 
+7. Redo resources with slurm variables?
 
-Some minor edits to test my branch.
+
+# IDEAS
+
+1. Run FastQC, or some other QC, immediately on the raw data?
+2. more quality filtering during mapping?
+3. Make use of the conda tools within `snakemake`? In theory, could set things up so that this whole pipeline has only 2 user-managed dependencies (`snakemake` and `conda` or `mamba`). `snakemkae` would handle the rest of the installing through `conda` environments. 
+4. Allow more flexibility in input file names? .fasta/.fa/.fastq/.fq, .gz or not? Right now, just works on files with `.fastq.gz` as their extension.
+5. Mark all intermediate files as temp in snakemake, to save disk space? Not that useful now, maybe once it is finalized?
+6. Improve Nextclade run? Edit default for QC, use our own .gff (which didn't work initially), etc.
