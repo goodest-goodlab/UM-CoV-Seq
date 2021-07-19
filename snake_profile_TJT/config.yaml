@@ -1,8 +1,18 @@
 jobs: 45
-cluster: "sbatch --partition={resources.partition} --cpus-per-task={resources.cpus} --output=/home/tt164677e/tim_beegfs/UM-CoV-Seq/logs/snakemake/%x_%j.out --mail-type=FAIL --mail-user=timothy.j.thurman@gmail.com"
-default-resources: [cpus=1, partition="good_lab_reincarnation"]
-jobname: sm_{rulename}_{jobid}.sh
+cluster: 
+    mkdir -p slurm_logs/{rule} &&
+    sbatch
+    --partition={resources.partition}
+    --cpus-per-task={resources.cpus}
+    --job-name={rule}-{wildcards}
+    --output=slurm_logs/{rule}/{rule}-{wildcards}-%j.out
+    --mail-type=FAIL
+    --mail-user=timothy.j.thurman@gmail.com
+default-resources: 
+  - cpus=1
+  - partition="good_lab_reincarnation"
 latency-wait: 15
 verbose: true
+# quiet: true
 # use-conda: true
 # conda-frontend: conda

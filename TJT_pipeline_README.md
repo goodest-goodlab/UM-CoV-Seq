@@ -75,12 +75,14 @@ I would recommend running the pipeline within `screen` or `tmux` or whatever, as
 # TODOs
 
 1. Make a config file for specifying the raw data, batch, ref genome, etc. 
-2. Check that sequencing raw data folder exists, exit the snakemake if it doesn't
-3. Improve the readgroup function? pull the first line of the FASTA and parse it to get a little more info, instead of the pretty simple stuff I'm doing currently.
-4. Figure out how to copy the used snakefile into the results folder for each batch.
-5. Fix base filename params in various rules, infer them from the output filename instead of hard-coding? Snakemake linter prefers this.
-6. Add log files to any rule without logs, so that important stuff isn't saved in the slurm logs. 
-7. Redo resources with slurm variables?
+2. Improve the readgroup function? pull the first line of the FASTA and parse it to get a little more info, instead of the pretty simple stuff I'm doing currently.
+3. Figure out how to copy the used snakefile into the results folder for each batch.
+4. Fix base filename params in various rules, infer them from the output filename instead of hard-coding? Snakemake linter prefers this.
+5. Add log files to any rule without logs, so that important stuff isn't saved in the slurm logs. DONE
+6. Redo resources with slurm variables? DONE. 
+7. Figure out whether to add the -aa option for the pileup for consensus sequences for iVar. 
+8. Add back in the dag and help rules the I keep in my other pipelines?
+9. Deal with conda environments. Can't get my GATK install to work properly. DONE.
 
 
 # IDEAS

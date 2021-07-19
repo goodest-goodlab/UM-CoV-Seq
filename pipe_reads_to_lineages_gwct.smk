@@ -4,7 +4,7 @@
 
 # The name of the batch based on the MiSeq run ID found in the sample file. Should also be present
 # in the raw data directory since this is how we identify that directory.
-BATCH_NAME = "V3P67";
+BATCH_NAME = "V3P67"
 # Batch 1, received 06.10.2021: V3P67 : runtime with 20 cores: 2913.04 seconds (49 mins)
 # Batch 2, received 07.15.2021: V4R1  : runtime with 20 cores: 2201.23 seconds (37 mins)
 
@@ -31,7 +31,7 @@ REF = "/mnt/beegfs/gt156213e/UM-CoV-Seq/SARS-CoV-2-refseq/GCF_009858895.2_ASM985
 # List the GFF file you want to use:
 GFF = "/mnt/beegfs/gt156213e/UM-CoV-Seq/SARS-CoV-2-refseq/GCF_009858895.2_ASM985889v3_genomic.gff"
 
-BASE_BATCH_DIR = os.path.normpath(os.path.join("results", BATCH_NAME));
+BASE_BATCH_DIR = os.path.normpath(os.path.join("results", BATCH_NAME))
 
 
 ###############
@@ -44,12 +44,18 @@ import re
 import csv
 import sys
 
-# Get the raw data folder based on the current batch name.
-indirs = os.listdir(BASE_DATA_FOLDER);
+# Get the raw data folder based on the current batch name
+indirs = os.listdir(BASE_DATA_FOLDER)
+RAW_DATA_FOLDER = "unassigned"
 for indir in indirs:
     if BATCH_NAME in indir:
-        RAW_DATA_FOLDER = os.path.join(BASE_DATA_FOLDER, indir);
-print("FOUND INPUT FOLDER: " + RAW_DATA_FOLDER);
+        RAW_DATA_FOLDER = os.path.join(BASE_DATA_FOLDER, indir)
+
+if RAW_DATA_FOLDER == "unassigned":
+    raise OSError("Folder matching given BATCH_NAME not found in BASE_DATA_FOLDER")
+
+
+
 
 # Pull all sample files from the raw data folder
 # get filenames of the individual fastas
@@ -64,6 +70,8 @@ for root, dirs, files in os.walk(RAW_DATA_FOLDER):
 # Get unique sample IDs
 samples = list(set(samples))
 samples.sort()
+
+samples = samples[1:3]
 
 # # Associate the barcode id with the actual sample id... don't think we'll need this
 # samples_dict = {};
@@ -156,7 +164,6 @@ rule all:
         bd(BATCH_NAME + "-summary.csv"), # Final summary of the rest of the results
         bd("gisaid/gisaid.fa") # The fasta file to upload to gisaid with UMGC samples IDs instead of barcodes
 
-## QC on raw reads??
 
 ## trim_raw_reads : remove adaptors and low-quality bases
 # Uses fastp. Options:
@@ -184,13 +191,11 @@ rule trim_and_merge_raw_reads:
         rep_json= bd("logs/fastp/{sample}_trim_fastp.json")
     resources:
         cpus = 1
-    # conda:
-    #     "envs/UM_COV_TJT.yml"
     log:
-        log= bd("logs/fastp/{sample}_trim_log.txt")
+        bd("logs/fastp/{sample}_trim_log.txt")
     shell:
         """
-        fastp -i {input.raw_r1} -I {input.raw_r2} -m --merged_out {output.trim_merged} --out1 {output.trim_r1_pair} --out2 {output.trim_r2_pair} --unpaired1 {output.trim_r1_nopair} --unpaired2 {output.trim_r2_nopair} --detect_adapter_for_pe --cut_front --cut_front_window_size 5 --cut_front_mean_quality 20 -l 25 -j {output.rep_json} -h {output.rep_html} -w {resources.cpus} 2> {log.log}
+        fastp -i {input.raw_r1} -I {input.raw_r2} -m --merged_out {output.trim_merged} --out1 {output.trim_r1_pair} --out2 {output.trim_r2_pair} --unpaired1 {output.trim_r1_nopair} --unpaired2 {output.trim_r2_nopair} --detect_adapter_for_pe --cut_front --cut_front_window_size 5 --cut_front_mean_quality 20 -l 25 -j {output.rep_json} -h {output.rep_html} -w $SLURM_CPUS_PER_TASK 2> {log}
         """
 
 ## multiqc_trim_reports: collate fastp trimming reports
@@ -202,9 +207,11 @@ rule multiqc_trim_reports:
     params:
         dir_in = bd("logs/fastp"),
         dir_out = bd("results/multiqc")
+    log:
+        bd("logs/multiqc/multiqc_trim_reports.log")
     shell:
         """
-        multiqc -f {params.dir_in} -o {params.dir_out} -n multiqc_report_trimming.html
+        multiqc -f {params.dir_in} -o {params.dir_out} -n multiqc_report_trimming.html > {log} 2>&1
         """
 
 ## index_ref: index genome for BWA
@@ -219,6 +226,8 @@ rule multiqc_trim_reports:
 #         bwa index {input}
 #         """
 # multiext isn't working anymore??
+## TJT- not sure if this is a version thing? Seems to work fine for me, 
+## on version 6.4.1.
 
 ## map_merged_reads: map trimmed, merged reads to reference
 #   BWA mem algorithm. Settings:
@@ -245,7 +254,7 @@ rule map_merged_reads:
     shell:
         """
         # Run bwa mem, pipe to samtools view to convert to bam, pipe to samtools sort
-        bwa mem -M -t {resources.cpus} -R '{params.read_group}' {input.genome} {input.reads} 2> {log} | samtools view -b - | samtools sort - -o {output}
+        bwa mem -M -t $SLURM_CPUS_PER_TASK -R '{params.read_group}' {input.genome} {input.reads} 2> {log} | samtools view -b - 2>> {log} | samtools sort - -o {output} 2>> {log}
         """
 
 # # map_unmerged_pairs: map trimmed, not merged, paired reads to reference
@@ -274,7 +283,7 @@ rule map_unmerged_pairs:
     shell:
         """
         # Run bwa mem, pipe to samtools view to convert to bam, pipe to samtools sort 
-        bwa mem -M -t {resources.cpus} -R '{params.read_group}' {input.genome} {input.reads_forward} {input.reads_reverse} 2> {log} | samtools view -b - | samtools sort - -o {output}
+        bwa mem -M -t $SLURM_CPUS_PER_TASK -R '{params.read_group}' {input.genome} {input.reads_forward} {input.reads_reverse} 2> {log} | samtools view -b - 2>> {log} | samtools sort - -o {output} 2>> {log}
         """
 
 ## map_unmerged_unpaired: map trimmed, unmerged, unpaired reads to reference
@@ -306,10 +315,10 @@ rule map_unmerged_unpaired:
         """
         # Run bwa mem, pipe to samtools view to convert to bam, save as a tmp.bam
         # Read 1
-        bwa mem -M -t {resources.cpus} -R '{params.read_group}' {input.genome} {input.reads_forward} 2> {log.forward} | samtools view -b - | samtools sort - -o {output.mapped_forward}
+        bwa mem -M -t $SLURM_CPUS_PER_TASK -R '{params.read_group}' {input.genome} {input.reads_forward} 2> {log.forward} | samtools view -b - 2>> {log.forward} | samtools sort - -o {output.mapped_forward} 2>> {log.forward}
 
         # Read 2
-        bwa mem -M -t {resources.cpus} -R '{params.read_group}' {input.genome} {input.reads_reverse} 2> {log.rev} | samtools view -b - | samtools sort - -o {output.mapped_reverse}
+        bwa mem -M -t $SLURM_CPUS_PER_TASK -R '{params.read_group}' {input.genome} {input.reads_reverse} 2> {log.rev} | samtools view -b - 2>> {log.rev} | samtools sort - -o {output.mapped_reverse} 2>> {log.rev}
         """
 
 ## merge_bams_by_sample : merge bam files by sample and run
@@ -340,11 +349,11 @@ rule index_raw_bams:
         bd("processed_reads/per_sample_bams/{sample}.sorted.bam")
     output:
         bd("processed_reads/per_sample_bams/{sample}.sorted.bam.bai")
-    resources:
-        cpus=1
+    log:
+        bd("logs/index_bams/{sample}.log")
     shell:
         """
-        samtools index -b {input}
+        samtools index -b {input} 2> {log}
         """
 
 ## qualimap_raw_bam: run qualimap on raw bam file
@@ -359,9 +368,11 @@ rule qualimap_raw_bam:
         out_dir=bd("processed_reads/QC/qualimap/{sample}")
     resources:
         cpus=8
+    log:
+        bd("logs/qualimap/{sample}.log")
     shell:
         """
-        qualimap bamqc -bam {input.bam} -nt {resources.cpus} -outdir {params.out_dir} -outformat html --java-mem-size=4G
+        qualimap bamqc -bam {input.bam} -nt $SLURM_CPUS_PER_TASK -outdir {params.out_dir} -outformat html --java-mem-size=4G > {log} 2>&1
         """
 
 ## multiqc_raw_bam_report: collate qualimap reports on raw bams
@@ -374,10 +385,14 @@ rule multiqc_raw_bam_report:
     params:
         dir_in = bd("processed_reads/QC/qualimap"),
         dir_out = bd("results/multiqc")
+    log:
+        bd("logs/multiqc/multiqc_raw_bam_reports.log")
     shell:
         """
-        multiqc -f {params.dir_in} -o {params.dir_out} -n multiqc_report_raw_bams.html
+        multiqc -f {params.dir_in} -o {params.dir_out} -n multiqc_report_raw_bams.html > {log} 2>&1
         """
+
+
 
 # pileup: Generate pileup files for ivar and bcftools.
 #
@@ -399,11 +414,14 @@ rule pileup:
     output:
         var_pileup = bd("results/pileup/{sample}-var.pileup"),
         cons_pileup = bd("results/pileup/{sample}-cons.pileup")
+    log:
+        var=bd("logs/pileup/{sample}-var.log"),
+        cons=bd("logs/pileup/{sample}-cons.log")
     shell:
         """
-        samtools mpileup -aa -A -d 0 -B -Q 0 --reference {input.ref} {input.sample} > {output.var_pileup}
+        samtools mpileup -aa -A -d 0 -B -Q 0 --reference {input.ref} {input.sample} > {output.var_pileup} 2> {log.var}
 
-        samtools mpileup -A -Q 0 --reference {input.ref} {input.sample} > {output.cons_pileup}
+        samtools mpileup -A -Q 0 --reference {input.ref} {input.sample} > {output.cons_pileup} 2> {log.cons}
         """
 
 ## mask_pileup: Mask problematic sites from the pileups by converting all mapped bases at those
@@ -415,12 +433,14 @@ rule mask_pileup:
     output:
         masked_var_pileup = bd("results/pileup/{sample}-var.masked.pileup"),
         masked_cons_pileup = bd("results/pileup/{sample}-cons.masked.pileup")
+    log:
+        var=bd("logs/mask_pileup/{sample}-var.log"),
+        cons=bd("logs/mask_pileup/{sample}-cons.log")
     shell:
         """
-        python lib/mask_pileup.py {input.var_pileup} {output.masked_var_pileup}
-        python lib/mask_pileup.py {input.cons_pileup} {output.masked_cons_pileup}
+        python lib/mask_pileup.py {input.var_pileup} {output.masked_var_pileup} 2> {log.var}
+        python lib/mask_pileup.py {input.cons_pileup} {output.masked_cons_pileup} 2> {log.cons}
         """
-
 
 ## ivar_raw_bams: Call variants and make consensus seqs for the raw bams
 # samtools mipileup into ivar 
@@ -433,7 +453,7 @@ rule mask_pileup:
 # iVar Options for consensus:
 # -q 20 min quality 20
 # -t 0.5 50% of reads needed for calling consensus base
-rule ivar_raw_bams:
+rule ivar_variant_and_consensus:
     input:
         masked_var_pileup = bd("results/pileup/{sample}-var.masked.pileup"),
         masked_cons_pileup = bd("results/pileup/{sample}-cons.masked.pileup"),
@@ -446,13 +466,16 @@ rule ivar_raw_bams:
         variants=bd("results/ivar/{sample}.tsv")
     params:
         basename=bd("results/ivar/{sample}")
+    log:
+        var=bd("logs/ivar/variant_calling/{sample}.log"),
+        cons=bd("logs/ivar/consensus/{sample}.log")
     shell:
         """
         # Call Variants
-        cat {input.masked_var_pileup} | ivar variants -p {params.basename} -q 20 -t 0.5 -m 10 -r {input.ref} -g {input.gff}
+        cat {input.masked_var_pileup} | ivar variants -p {params.basename} -q 20 -t 0.5 -m 10 -r {input.ref} -g {input.gff} > {log.var} 2>&1
 
         # Make Consensus sequence
-        cat {input.masked_cons_pileup} | ivar consensus -p {params.basename} -q 20 -t 0.5 -m 10
+        cat {input.masked_cons_pileup} | ivar consensus -p {params.basename} -q 20 -t 0.5 -m 10 > {log.cons} 2>&1
         """
 
 ## gatk_haplotypecaller: Call variants with GATK. Emit all sites (-ERC GVCF) for genotyping
@@ -509,16 +532,18 @@ rule filter_vcfs:
         """
         bcftools filter -m+ -e 'MQ < 30.0 || FORMAT/DP < 10 || FORMAT/DP > 1200 || FORMAT/GQ < 20 || FORMAT/AD[0:1] / FORMAT/DP < 0.5 || ALT="*"' -s FILTER --IndelGap 5 -Oz -o {output.fvcf} {input.vcf}
         """
-
+    
 ## mask_vcfs: Mask/filter GATK variants at positions in the problematic sites VCF file.
 rule mask_vcfs:
     input:
         fvcf = bd("results/gatk/{sample}.fvcf.gz")
     output:
         mvcf = bd("results/gatk/{sample}.masked.fvcf.gz")
+    log:
+        bd("logs/mask_vcf/{sample}.log")
     shell:
         """
-        python lib/mask_vcf.py {input.fvcf} {output.mvcf}
+        python lib/mask_vcf.py {input.fvcf} {output.mvcf} 2> {log}
         """
 
 ## bcftools_consensus: Generate the consensus sequences from the GATK variant calls.
@@ -551,24 +576,30 @@ rule combine_raw_consensus:
     params:
         ivar_base_dir = bd("results/ivar/"),
         gatk_base_dir = bd("results/gatk/")
+    log:
+        ivar=bd("logs/combine_consensus/ivar_consensus.log"),
+        gatk=bd("logs/combine_consensus/gatk_consensus.log")
     shell:
         """
-        cat {params.ivar_base_dir}/*.fa > {output.ivar_cons}
-        cat {params.gatk_base_dir}/*.fa > {output.gatk_cons}
+        cat {params.ivar_base_dir}/*.fa > {output.ivar_cons} 2> {log.ivar}
+        cat {params.gatk_base_dir}/*.fa > {output.gatk_cons} 2> {log.gatk}
         """
 
-## calc_num_N: calculate number of Ns for each sample
-rule calc_num_N:
+## consensus_stats: calculate number of Ns for each sample
+rule consensus_stats:
     input:
         ivar_cons = bd("results/ivar/all_samples_consensus.fasta"),
         gatk_cons = bd("results/gatk/all_samples_consensus.fasta")
     output:
         ivar_stats = bd("results/ivar/all_samples_consensus_stats.csv"),
         gatk_stats = bd("results/gatk/all_samples_consensus_stats.csv")
+    log:
+        ivar=bd("logs/consensus_stats/ivar.log"),
+        gatk=bd("logs/consensus_stats/gatk.log")
     shell:
         """
-        python lib/consensus_stats.py {input.ivar_cons} ivar {output.ivar_stats}
-        python lib/consensus_stats.py {input.gatk_cons} gatk {output.gatk_stats}
+        python lib/consensus_stats.py {input.ivar_cons} ivar {output.ivar_stats} 2> {log.ivar}
+        python lib/consensus_stats.py {input.gatk_cons} gatk {output.gatk_stats} 2> {log.gatk}
         """
 
 ## pangolin_assign_lineage: assign consensus seqs to lineages
@@ -617,8 +648,8 @@ rule nextclade_assign_clade:
         ./nextclade-1.0.0-alpha.9 -i {input.gatk_consensus} --input-root-seq {input.ref} -a {input.tree} -q {input.qc_config} -g {input.gff} -d {params.gatk_base_dir} --output-tsv {output.gatk_report} 2> {log.gatk_log}
         """
 
-## summarize_results: Combine all summary tables and generate main table and GISAID table.
-rule summarize_results:
+## compile_results: Combine all summary tables and generate main table and GISAID table.
+rule compile_results:
     input:
         sample_file = SAMPLE_FILE,
         multiqc = bd("results/multiqc/multiqc_report_raw_bams_data/multiqc_general_stats.txt"),
@@ -637,9 +668,11 @@ rule summarize_results:
         batch_dir = BASE_BATCH_DIR + "/",
         ivar_dir = bd("results/ivar/"),
         gatk_dir = bd("results/gatk/")
+    log:
+        bd("logs/compile_results.log")
     shell:
         """
-        Rscript lib/compile_results.R {input.sample_file} {params.batch} {params.batch_dir} {input.multiqc} {params.ivar_dir} {params.gatk_dir} {input.ivar_stats} {input.gatk_stats} {input.ivar_pangolin} {input.gatk_pangolin} {input.ivar_nextclade} {input.gatk_nextclade}
+        Rscript lib/compile_results.R {input.sample_file} {params.batch} {params.batch_dir} {input.multiqc} {params.ivar_dir} {params.gatk_dir} {input.ivar_stats} {input.gatk_stats} {input.ivar_pangolin} {input.gatk_pangolin} {input.ivar_nextclade} {input.gatk_nextclade} 2> {log}
         """
 
 ## gisaid_seqs: Combine sequences with GISAID headers
@@ -652,9 +685,11 @@ rule gisaid_seqs:
         ivar_dir = bd("results/ivar/")
     output:
         gisaid_file = bd("gisaid/gisaid.fa")
+    log:
+        bd("logs/gisaid_seq.log")
     shell:
         """
-        python lib/gisaid_seq.py {params.ivar_dir} {params.batch} {input.sample_file} {input.summary_file} {output.gisaid_file}
+        python lib/gisaid_seq.py {params.ivar_dir} {params.batch} {input.sample_file} {input.summary_file} {output.gisaid_file} 2> {log}
         """
 
 ############################################################

@@ -1,3 +1,11 @@
+.DS_Store
+
+# R setup
+.Rproj.user
+UM-CoV-Seq.Rproj
+.Rhistory
+
+# Editor files and setup
 *.code-workspace
 .vscode/
 
@@ -6,6 +14,10 @@
 
 # Log files
 logs/*
+slurm_logs/*
+
+# raw data files
+data/
 
 # Processed data files
 processed_reads/*
@@ -21,19 +33,10 @@ SARS-CoV-2-refseq/*.pac
 SARS-CoV-2-refseq/*.sa
 SARS-CoV-2-refseq/*.fai
 SARS-CoV-2-refseq/*.dict
-.Rproj.user
 
-UM-CoV-Seq.Rproj
-
-.Rhistory
-
-.DS_Store
-
+# Files leftover from testing
 temp_results/
 temp_results_dedup/*
-
-
-data/
 phix/
 old/
 *test*
