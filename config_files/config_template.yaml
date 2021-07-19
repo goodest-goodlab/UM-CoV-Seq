@@ -1,0 +1,22 @@
+###
+# Lines to edit before running
+###
+
+# Name of batch (should match MiSeq run ID in sample file)
+batch: batch_name
+
+###
+# Lines that probably don't need to be edited
+###
+
+# The sample file with barcodse, UMGC IDs, data source, and MiSeq run ID.
+sample_file: /mnt/beegfs/gt156213e/UM-CoV-Seq/data/Master-ID-List_For-UMGC-WGS-Samples_20210713_DX.csv
+
+# The directory containing subdirectories for all sequence batches. 
+base_data_folder: /mnt/beegfs/gt156213e/UM-CoV-Seq/data/
+
+# Reference genome
+ref_genome: /mnt/beegfs/gt156213e/UM-CoV-Seq/SARS-CoV-2-refseq/GCF_009858895.2_ASM985889v3_genomic.fna
+
+# Genome features file
+ref_gff: /mnt/beegfs/gt156213e/UM-CoV-Seq/SARS-CoV-2-refseq/GCF_009858895.2_ASM985889v3_genomic.gff

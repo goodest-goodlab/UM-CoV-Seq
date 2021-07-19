@@ -1,48 +1,39 @@
-############################
-##   EDIT BEFORE RUNNING  ##
-############################
-
-# The name of the batch based on the MiSeq run ID found in the sample file. Should also be present
-# in the raw data directory since this is how we identify that directory.
-BATCH_NAME = "V3P67"
-# Batch 1, received 06.10.2021: V3P67 : runtime with 20 cores: 2913.04 seconds (49 mins)
-# Batch 2, received 07.15.2021: V4R1  : runtime with 20 cores: 2201.23 seconds (37 mins)
-
-#################################
-## DO NOT EDIT BELOW THIS LINE ##
-##  WHEN RUNNING THE PIPELINE  ##
-#################################
-
-
-#################
-##   GLOBALS   ##
-################# 
-
-# The sample file with barcods, UMGC IDs, data source, and MiSeq run ID.
-SAMPLE_FILE = "/mnt/beegfs/gt156213e/UM-CoV-Seq/data/Master-ID-List_For-UMGC-WGS-Samples_20210713_DX.csv"
-
-# List the directory containing subdirectories for all sequence batches. The exact directory for this
-# batch will be determined by the BATCH_NAME.
-BASE_DATA_FOLDER = "/mnt/beegfs/gt156213e/UM-CoV-Seq/data/"
-
-# List the reference genome you want to map to:
-REF = "/mnt/beegfs/gt156213e/UM-CoV-Seq/SARS-CoV-2-refseq/GCF_009858895.2_ASM985889v3_genomic.fna"
-
-# List the GFF file you want to use:
-GFF = "/mnt/beegfs/gt156213e/UM-CoV-Seq/SARS-CoV-2-refseq/GCF_009858895.2_ASM985889v3_genomic.gff"
-
-BASE_BATCH_DIR = os.path.normpath(os.path.join("results", BATCH_NAME))
-
-
-###############
-##   SETUP   ##
-############### 
-
 # Python env setup
 import os
 import re
 import csv
 import sys
+
+#################
+##   GLOBALS   ##
+################# 
+
+# Mostly pulled from config file
+
+# The name of the batch based on the MiSeq run ID found in the sample file. Should also be present
+BATCH_NAME = config["batch"]
+# Batch 1, received 06.10.2021: V3P67 : runtime with 20 cores: 2913.04 seconds (49 mins)
+# Batch 2, received 07.15.2021: V4R1  : runtime with 20 cores: 2201.23 seconds (37 mins)
+
+
+# The sample file with barcods, UMGC IDs, data source, and MiSeq run ID.
+SAMPLE_FILE = config["sample_file"]
+
+# List the directory containing subdirectories for all sequence batches. The exact directory for this
+# batch will be determined by the BATCH_NAME.
+BASE_DATA_FOLDER = config["base_data_folder"]
+
+# List the reference genome you want to map to:
+REF = config["ref_genome"]
+
+# List the GFF file you want to use:
+GFF = config["ref_gff"]
+
+BASE_BATCH_DIR = os.path.normpath(os.path.join("results", BATCH_NAME))
+
+###############
+##   SETUP   ##
+############### 
 
 # Get the raw data folder based on the current batch name
 indirs = os.listdir(BASE_DATA_FOLDER)
@@ -51,11 +42,9 @@ for indir in indirs:
     if BATCH_NAME in indir:
         RAW_DATA_FOLDER = os.path.join(BASE_DATA_FOLDER, indir)
 
+# Raise a sensible error if the folder doesn't exist
 if RAW_DATA_FOLDER == "unassigned":
-    raise OSError("Folder matching given BATCH_NAME not found in BASE_DATA_FOLDER")
-
-
-
+    raise OSError("Folder matching given batch name not found in base_data_folder")
 
 # Pull all sample files from the raw data folder
 # get filenames of the individual fastas
@@ -70,7 +59,6 @@ for root, dirs, files in os.walk(RAW_DATA_FOLDER):
 # Get unique sample IDs
 samples = list(set(samples))
 samples.sort()
-
 samples = samples[1:3]
 
 # # Associate the barcode id with the actual sample id... don't think we'll need this
@@ -216,18 +204,18 @@ rule multiqc_trim_reports:
 
 ## index_ref: index genome for BWA
 # Index the reference genome, if it isn't already
-# rule index_ref:
-#     input:
-#         REF
-#     output:
-#         multiext(REF, ".amb", ".ann", ".bwt", ".pac", ".sa")    
-#     shell:
-#         """
-#         bwa index {input}
-#         """
-# multiext isn't working anymore??
-## TJT- not sure if this is a version thing? Seems to work fine for me, 
-## on version 6.4.1.
+rule index_ref:
+    input:
+        REF
+    output:
+        multiext(REF, ".amb", ".ann", ".bwt", ".pac", ".sa")    
+    shell:
+        """
+        bwa index {input}
+        """
+# GWCT- multiext isn't working anymore??
+# TJT- not sure if this is a version thing? Seems to work fine for me, 
+# on version 6.4.1 and 6.6.0
 
 ## map_merged_reads: map trimmed, merged reads to reference
 #   BWA mem algorithm. Settings:

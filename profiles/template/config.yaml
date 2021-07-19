@@ -1,18 +1,15 @@
 jobs: 45
 cluster: 
-    mkdir -p slurm_logs/{rule} &&
+    mkdir -p results/{config[batch]}/slurm_logs/{rule}/ &&
     sbatch
     --partition={resources.partition}
     --cpus-per-task={resources.cpus}
     --job-name={rule}-{wildcards}
-    --output=slurm_logs/{rule}/{rule}-{wildcards}-%j.out
+    --output=results/{config[batch]}/slurm_logs/{rule}/{rule}-{wildcards}-%j.out
     --mail-type=FAIL
-    --mail-user=timothy.j.thurman@gmail.com
+    --mail-user=your.address@email.com
 default-resources: 
   - cpus=1
   - partition="good_lab_reincarnation"
 latency-wait: 15
 verbose: true
-# quiet: true
-# use-conda: true
-# conda-frontend: conda
