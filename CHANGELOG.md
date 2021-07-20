@@ -2,13 +2,19 @@
 
     * Added this CHANGELOG.
 
-    * Updated `config.yaml` profile to change naming and location of slurm logs. 
+    * Updated profile folder with template `config.yaml` file, changed naming and location of slurm logs. 
 
-    * Some minor updates to snakefile requested by linter. (1) all thread/CPU usge specified by slurm variables instead of snakemake resources (2) added log files for all rules. 
+    * Introduce config files, so snakemake pipeline no longer needs to be edited. 
+
+    * Some minor updates to snakefile requested by linter. (1) all thread/CPU usge specified by slurm variables instead of snakemake resources (2) added log files for all rules.
+
+    * Pipeline now outputs elapsed time and preserves copy of the snakefile used.
 
     * Add a check that the data folder exists, for sensible snakemake errors if it doesn't.
 
     * Added my old .yml files to the envs folder. Tested a new, from-scratch conda environment (UM_CoV_2), that worked. 
+
+    * Merge READMEs and snakemake pipelines, so we don't have TJT and GWCT copies anymore. 
 
 
 2021-07-18 Gregg Thomas <greggwct@gmail.com>
