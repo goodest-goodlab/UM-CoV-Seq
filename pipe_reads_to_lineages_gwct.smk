@@ -63,6 +63,10 @@ for root, dirs, files in os.walk(RAW_DATA_FOLDER):
 samples = list(set(samples))
 samples.sort()
 
+# Can comment/uncomment the below line for testing,
+# to run pipeline on just the first two samples. 
+# samples = samples[1:3]
+
 # Get filename for the BWA genome index
 index_path= REF + ".amb"
 
@@ -186,6 +190,19 @@ rule trim_and_merge_raw_reads:
         fastp -i {input.raw_r1} -I {input.raw_r2} -m --merged_out {output.trim_merged} --out1 {output.trim_r1_pair} --out2 {output.trim_r2_pair} --unpaired1 {output.trim_r1_nopair} --unpaired2 {output.trim_r2_nopair} --detect_adapter_for_pe --cut_front --cut_front_window_size 5 --cut_front_mean_quality 20 -l 25 -j {output.rep_json} -h {output.rep_html} -w $SLURM_CPUS_PER_TASK 2> {log}
         """
 
+
+# The snakemake linter prefers that, for rules like this
+# where we base directories or basenames in as parameters,
+# that they be generated through lambda functions from the inputs and/or outputs,
+# Insted of hard coding.
+# E.g., for this rule here, would use:
+    # params:
+    #     dir_in = lambda w, input: os.path.split(os.path.splitext(input[0])[0])[0],
+    #     dir_out = lambda w, output: os.path.split(os.path.splitext(output[0])[0])[0]
+# I think this is kinda dumb and unreadable, just gonna leave the hard coding.
+# But, can leave this comment here as an example in case we want to 
+# address this in the future. 
+
 ## multiqc_trim_reports: collate fastp trimming reports
 rule multiqc_trim_reports:
     input:
@@ -208,10 +225,12 @@ rule index_ref:
     input:
         REF
     output:
-        multiext(REF, ".amb", ".ann", ".bwt", ".pac", ".sa")    
+        multiext(REF, ".amb", ".ann", ".bwt", ".pac", ".sa")
+    log:
+        bd("logs/index_ref.log")  
     shell:
         """
-        bwa index {input}
+        bwa index {input} > {log} 2>&1
         """
 # GWCT- multiext isn't working anymore??
 # TJT- not sure if this is a version thing? Seems to work fine for me, 

@@ -74,16 +74,7 @@ I would recommend running the pipeline within `screen` or `tmux` or whatever, as
 
 # TODOs
 
-1. Make a config file for specifying the raw data, batch, ref genome, etc. DONE.
-2. Improve the readgroup function? pull the first line of the FASTA and parse it to get a little more info, instead of the pretty simple stuff I'm doing currently.
-3. Figure out how to copy the used snakefile into the results folder for each batch. Also, add date, runstart, runend, and other info to pipeline log. DONE
-4. Fix base filename params in various rules, infer them from the output filename instead of hard-coding? Snakemake linter prefers this.
-5. Add log files to any rule without logs, so that important stuff isn't saved in the slurm logs. DONE
-6. Redo resources with slurm variables? DONE. 
-7. Figure out whether to add the -aa option for the pileup for consensus sequences for iVar. 
-8. Add back in the dag and help rules the I keep in my other pipelines?
-9. Deal with conda environments. Can't get my GATK install to work properly. DONE.
-10. Get SLURM logs to ouput into folders for each batch. DONE.
+1. Figure out whether to add the -aa option for the pileup for consensus sequences for iVar. 
 
 # IDEAS
 
@@ -92,4 +83,6 @@ I would recommend running the pipeline within `screen` or `tmux` or whatever, as
 3. Make use of the conda tools within `snakemake`? In theory, could set things up so that this whole pipeline has only 2 user-managed dependencies (`snakemake` and `conda` or `mamba`). `snakemkae` would handle the rest of the installing through `conda` environments. 
 4. Allow more flexibility in input file names? .fasta/.fa/.fastq/.fq, .gz or not? Right now, just works on files with `.fastq.gz` as their extension.
 5. Mark all intermediate files as temp in snakemake, to save disk space? Not that useful now, maybe once it is finalized?
-6. Improve Nextclade run? Edit default for QC, use our own .gff (which didn't work initially), etc.
+6. Improve Nextclade? Edit default for QC, use our own .gff (which didn't work initially), etc.
+7. Improve the readgroup function? pull the first line of the FASTA and parse it to get a little more info, instead of the pretty simple stuff I'm doing currently.
+8. Add a rule to plot the DAG?
