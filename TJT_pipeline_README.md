@@ -76,7 +76,7 @@ I would recommend running the pipeline within `screen` or `tmux` or whatever, as
 
 1. Make a config file for specifying the raw data, batch, ref genome, etc. DONE.
 2. Improve the readgroup function? pull the first line of the FASTA and parse it to get a little more info, instead of the pretty simple stuff I'm doing currently.
-3. Figure out how to copy the used snakefile into the results folder for each batch. Also, copy config file and add batch name, date, runstart, runend, and other info to pipeline log. 
+3. Figure out how to copy the used snakefile into the results folder for each batch. Also, add date, runstart, runend, and other info to pipeline log. DONE
 4. Fix base filename params in various rules, infer them from the output filename instead of hard-coding? Snakemake linter prefers this.
 5. Add log files to any rule without logs, so that important stuff isn't saved in the slurm logs. DONE
 6. Redo resources with slurm variables? DONE. 

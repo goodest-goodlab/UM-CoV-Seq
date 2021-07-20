@@ -3,6 +3,9 @@ import os
 import re
 import csv
 import sys
+from datetime import datetime
+
+start_time = datetime.now()
 
 #################
 ##   GLOBALS   ##
@@ -59,23 +62,6 @@ for root, dirs, files in os.walk(RAW_DATA_FOLDER):
 # Get unique sample IDs
 samples = list(set(samples))
 samples.sort()
-samples = samples[1:3]
-
-# # Associate the barcode id with the actual sample id... don't think we'll need this
-# samples_dict = {};
-# with open(SAMPLE_FILE) as csv_file:
-#     csv_reader = csv.reader(csv_file, delimiter=',', quotechar='"');
-#     line_count = 0;
-#     first = True;
-#     for row in csv_reader:
-#         if row[0].startswith("#"):
-#             continue;
-#         if first:
-#             first = False;
-#             continue;
-#         if row[3] != BATCH_NAME:
-#             continue;
-#         samples_dict[row[0]] = row[1];
 
 # Get filename for the BWA genome index
 index_path= REF + ".amb"
@@ -135,15 +121,29 @@ def bd(filepath):
 ####################
 localrules: all
 
+# Onstart and onsuccess, make a log files and copy the snakefile that was used
+# into the results directory for posterity
+pipeline_log_file = bd("logs/pipeline_log.tsv")
 onstart:
-    filename = bd("logs/pipeline_log.tsv")
-    os.makedirs(os.path.dirname(filename), exist_ok=True)
-    with open(filename, 'w') as tsvfile:
+    os.makedirs(os.path.dirname(pipeline_log_file), exist_ok=True)
+    with open(pipeline_log_file, 'w') as tsvfile:
         writer = csv.writer(tsvfile, delimiter='\t')
         writer.writerow(["Raw data folder used:", RAW_DATA_FOLDER])
         writer.writerow(["Reference genome used:", REF])
         writer.writerow(["GFF file used:", GFF])
-        writer.writerow(["Copy of snakefile used stored at:", "figuring out"])
+        writer.writerow(["Start time:", start_time.strftime("%B %d, %Y: %H:%M:%S")])
+        
+
+onsuccess:
+    smk_copy_command = 'cp pipe_reads_to_lineages_gwct.smk ' + str(bd("snakefile_used_copy.smk"))
+    end_time = datetime.now()
+    elapsed_time = end_time - start_time
+    os.popen(smk_copy_command) 
+    with open(pipeline_log_file, 'a') as tsvfile:
+        writer = csv.writer(tsvfile, delimiter='\t')
+        writer.writerow(["End time:", end_time.strftime("%B %d, %Y: %H:%M:%S")])
+        writer.writerow(["Elapsed time:", str(elapsed_time)])
+        writer.writerow(["Copy of snakefile used stored at:", str(bd("snakefile_used_copy.smk"))])
 
 # all: The rule that looks for the final desired output files to initiate running all rules to generate those files.
 rule all:
@@ -379,7 +379,6 @@ rule multiqc_raw_bam_report:
         """
         multiqc -f {params.dir_in} -o {params.dir_out} -n multiqc_report_raw_bams.html > {log} 2>&1
         """
-
 
 
 # pileup: Generate pileup files for ivar and bcftools.
@@ -679,5 +678,3 @@ rule gisaid_seqs:
         """
         python lib/gisaid_seq.py {params.ivar_dir} {params.batch} {input.sample_file} {input.summary_file} {output.gisaid_file} 2> {log}
         """
-
-############################################################

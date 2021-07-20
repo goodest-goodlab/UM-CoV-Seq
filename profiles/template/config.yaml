@@ -1,11 +1,11 @@
 jobs: 45
 cluster: 
-    mkdir -p results/{config[batch]}/slurm_logs/{rule}/ &&
+    mkdir -p results/{config[batch]}/logs/slurm_logs/{rule}/ &&
     sbatch
     --partition={resources.partition}
     --cpus-per-task={resources.cpus}
     --job-name={rule}-{wildcards}
-    --output=results/{config[batch]}/slurm_logs/{rule}/{rule}-{wildcards}-%j.out
+    --output=results/{config[batch]}/logs/slurm_logs/{rule}/{rule}-{wildcards}-%j.out
     --mail-type=FAIL
     --mail-user=your.address@email.com
 default-resources: 
