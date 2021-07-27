@@ -139,7 +139,7 @@ onstart:
         
 
 onsuccess:
-    smk_copy_command = 'cp pipe_reads_to_lineages_gwct.smk ' + str(bd("snakefile_used_copy.smk"))
+    smk_copy_command = 'cp pipe_reads_to_lineages.smk ' + str(bd("snakefile_used_copy.smk"))
     end_time = datetime.now()
     elapsed_time = end_time - start_time
     os.popen(smk_copy_command) 
@@ -400,19 +400,15 @@ rule multiqc_raw_bam_report:
         """
 
 
-# pileup: Generate pileup files for ivar and bcftools.
+# pileup: Generate pileup files for ivar.
 #
-# samtools options for variants:
+# samtools options:
 # -aa Output all positions, including unused reference sequences
 # -A Count orphans
 # -d 0 no max depth limit
 # -B disable BAQ computation
 # -Q 0 No minimum base quality
-#
-# samtools options for consensus:
-# -A Count orphans
-# -d 1000 max depth of 1000 reads
-# -Q 0 No minimum base quality
+
 rule pileup:
     input:
         sample = bd("processed_reads/per_sample_bams/{sample}.sorted.bam"),
@@ -427,7 +423,7 @@ rule pileup:
         """
         samtools mpileup -aa -A -d 0 -B -Q 0 --reference {input.ref} {input.sample} > {output.var_pileup} 2> {log.var}
 
-        samtools mpileup -A -Q 0 --reference {input.ref} {input.sample} > {output.cons_pileup} 2> {log.cons}
+        samtools mpileup -aa -A -d 0 -B -Q 0 --reference {input.ref} {input.sample} > {output.cons_pileup} 2> {log.cons}
         """
 
 ## mask_pileup: Mask problematic sites from the pileups by converting all mapped bases at those
@@ -444,8 +440,8 @@ rule mask_pileup:
         cons=bd("logs/mask_pileup/{sample}-cons.log")
     shell:
         """
-        python lib/mask_pileup.py {input.var_pileup} {output.masked_var_pileup} 2> {log.var}
-        python lib/mask_pileup.py {input.cons_pileup} {output.masked_cons_pileup} 2> {log.cons}
+        python lib/mask_pileup.py {input.var_pileup} {output.masked_var_pileup} > {log.var} 2>&1
+        python lib/mask_pileup.py {input.cons_pileup} {output.masked_cons_pileup} > {log.cons} 2>&1
         """
 
 ## ivar_raw_bams: Call variants and make consensus seqs for the raw bams
@@ -497,7 +493,7 @@ rule gatk_haplotypecaller:
         gvcf = bd("results/gatk/{sample}.gvcf.gz")
     shell:
         """
-        gatk HaplotypeCaller -R {input.ref} -I {input.sample} -stand-call-conf 30 --native-pair-hmm-threads 4 -ERC GVCF -O {output.gvcf} 2> {log.hc_log}
+        gatk HaplotypeCaller -R {input.ref} -I {input.sample} -stand-call-conf 30 --native-pair-hmm-threads 4 -ERC GVCF -O {output.gvcf} > {log.hc_log} 2>&1
         """
 
 ## gatk_genotypgvcfs: Genotype the GVCFs from the previous steps and emit all sites to 
@@ -514,7 +510,7 @@ rule gatk_genotypegvcfs:
         vcf = bd("results/gatk/{sample}.vcf.gz")
     shell:
         """
-        gatk GenotypeGVCFs -R {input.ref} -V {input.gvcf} -O {output.vcf} --include-non-variant-sites 2> {log.gt_log}
+        gatk GenotypeGVCFs -R {input.ref} -V {input.gvcf} -O {output.vcf} --include-non-variant-sites > {log.gt_log} 2>&1
         """
 
 ## filter_vcfs: Filter variants with bcftools.
@@ -536,7 +532,7 @@ rule filter_vcfs:
         fvcf = bd("results/gatk/{sample}.fvcf.gz")
     shell:
         """
-        bcftools filter -m+ -e 'MQ < 30.0 || FORMAT/DP < 10 || FORMAT/DP > 1200 || FORMAT/GQ < 20 || FORMAT/AD[0:1] / FORMAT/DP < 0.5 || ALT="*"' -s FILTER --IndelGap 5 -Oz -o {output.fvcf} {input.vcf}
+        bcftools filter -m+ -e 'MQ < 30.0 || FORMAT/DP < 10 || FORMAT/DP > 1200 || FORMAT/GQ < 20 || FORMAT/AD[0:1] / FORMAT/DP < 0.5 || ALT="*"' -s FILTER --IndelGap 5 -Oz -o {output.fvcf} {input.vcf} > {log.gt_log} 2>&1
         """
     
 ## mask_vcfs: Mask/filter GATK variants at positions in the problematic sites VCF file.
@@ -549,7 +545,7 @@ rule mask_vcfs:
         bd("logs/mask_vcf/{sample}.log")
     shell:
         """
-        python lib/mask_vcf.py {input.fvcf} {output.mvcf} 2> {log}
+        python lib/mask_vcf.py {input.fvcf} {output.mvcf} > {log} 2>&1
         """
 
 ## bcftools_consensus: Generate the consensus sequences from the GATK variant calls.
@@ -567,7 +563,7 @@ rule bcftools_consensus:
     shell:
         """
         tabix -fp vcf {input.mvcf}
-        bcftools consensus -f {input.ref} -o {output.fa} -c {output.chain} -e "FILTER!='PASS'" -p {params.prefix} {input.mvcf}
+        bcftools consensus -f {input.ref} -o {output.fa} -c {output.chain} -e "FILTER!='PASS'" -p {params.prefix} {input.mvcf} > {log.gt_log} 2>&1
         """
 
 
@@ -604,8 +600,8 @@ rule consensus_stats:
         gatk=bd("logs/consensus_stats/gatk.log")
     shell:
         """
-        python lib/consensus_stats.py {input.ivar_cons} ivar {output.ivar_stats} 2> {log.ivar}
-        python lib/consensus_stats.py {input.gatk_cons} gatk {output.gatk_stats} 2> {log.gatk}
+        python lib/consensus_stats.py {input.ivar_cons} ivar {output.ivar_stats} > {log.ivar} 2>&1
+        python lib/consensus_stats.py {input.gatk_cons} gatk {output.gatk_stats} > {log.gatk} 2>&1
         """
 
 ## pangolin_assign_lineage: assign consensus seqs to lineages
@@ -624,9 +620,9 @@ rule pangolin_assign_lineage:
         gatk_base_dir = bd("results/gatk-pangolin/")
     shell:
         """
-        pangolin --alignment {input.ivar_cons} -o {params.ivar_base_dir} --verbose 2> {log.ivar_log}
+        pangolin --alignment {input.ivar_cons} -o {params.ivar_base_dir} --verbose > {log.ivar_log} 2>&1
 
-        pangolin --alignment {input.gatk_cons} -o {params.gatk_base_dir} --verbose 2> {log.gatk_log}
+        pangolin --alignment {input.gatk_cons} -o {params.gatk_base_dir} --verbose > {log.gatk_log} 2>&1
         """
 
 ## nextclade_assign_clade:
@@ -649,9 +645,9 @@ rule nextclade_assign_clade:
         gatk_base_dir = bd("results/gatk-nextclade/"),
     shell:
         """
-        ./nextclade-1.0.0-alpha.9 -i {input.ivar_consensus} --input-root-seq {input.ref} -a {input.tree} -q {input.qc_config} -g {input.gff} -d {params.ivar_base_dir} --output-tsv {output.ivar_report} 2> {log.ivar_log}
+        ./nextclade-1.0.0-alpha.9 -i {input.ivar_consensus} --input-root-seq {input.ref} -a {input.tree} -q {input.qc_config} -g {input.gff} -d {params.ivar_base_dir} --output-tsv {output.ivar_report} > {log.ivar_log} 2>&1
 
-        ./nextclade-1.0.0-alpha.9 -i {input.gatk_consensus} --input-root-seq {input.ref} -a {input.tree} -q {input.qc_config} -g {input.gff} -d {params.gatk_base_dir} --output-tsv {output.gatk_report} 2> {log.gatk_log}
+        ./nextclade-1.0.0-alpha.9 -i {input.gatk_consensus} --input-root-seq {input.ref} -a {input.tree} -q {input.qc_config} -g {input.gff} -d {params.gatk_base_dir} --output-tsv {output.gatk_report} > {log.gatk_log} 2>&1
         """
 
 ## compile_results: Combine all summary tables and generate main table and GISAID table.
@@ -678,7 +674,7 @@ rule compile_results:
         bd("logs/compile_results.log")
     shell:
         """
-        Rscript lib/compile_results.R {input.sample_file} {params.batch} {params.batch_dir} {input.multiqc} {params.ivar_dir} {params.gatk_dir} {input.ivar_stats} {input.gatk_stats} {input.ivar_pangolin} {input.gatk_pangolin} {input.ivar_nextclade} {input.gatk_nextclade} 2> {log}
+        Rscript lib/compile_results.R {input.sample_file} {params.batch} {params.batch_dir} {input.multiqc} {params.ivar_dir} {params.gatk_dir} {input.ivar_stats} {input.gatk_stats} {input.ivar_pangolin} {input.gatk_pangolin} {input.ivar_nextclade} {input.gatk_nextclade} > {log} 2>&1
         """
 
 ## gisaid_seqs: Combine sequences with GISAID headers
@@ -695,5 +691,5 @@ rule gisaid_seqs:
         bd("logs/gisaid_seq.log")
     shell:
         """
-        python lib/gisaid_seq.py {params.ivar_dir} {params.batch} {input.sample_file} {input.summary_file} {output.gisaid_file} 2> {log}
+        python lib/gisaid_seq.py {params.ivar_dir} {params.batch} {input.sample_file} {input.summary_file} {output.gisaid_file} > {log} 2>&1
         """

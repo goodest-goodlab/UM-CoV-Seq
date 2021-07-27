@@ -12,7 +12,9 @@
 
     * Add a check that the data folder exists, for sensible snakemake errors if it doesn't.
 
-    * Added my old .yml files to the envs folder. Tested a new, from-scratch conda environment (UM_CoV_2), that worked. 
+    * Added my old .yml files to the envs folder. Tested a new, from-scratch conda environment (UM-CoV-Seq.yml).
+
+    * iVar variants and iVar consensus sequence now use same mpileup command. 
 
     * Merge READMEs and snakemake pipelines, so we don't have TJT and GWCT copies anymore. 
 

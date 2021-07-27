@@ -111,7 +111,7 @@ cov_perc_1x_p = ggplot(coverage, aes(x=sample, y=perc_ref_1X_cov)) +
 #print(cov_perc_1x_p)
 # Plot the percent of sites that have at least 1 read covering them
 
-cov_perc_1x_p_out = paste(batch_dir, batch, "-1x-cov.png", sep="")
+cov_perc_1x_p_out = paste(batch_dir, batch, "-1x-cov.pdf", sep="")
 cat(as.character(Sys.time()), " | Saving 1x coverage plot:", cov_perc_1x_p_out, "\n")
 ggsave(cov_perc_1x_p_out, cov_perc_1x_p, width=10, height=4, units="in")
 # Save the plot
@@ -134,7 +134,7 @@ avg_cov_p = ggplot(coverage, aes(x=sample, y=avg.coverage)) +
 #print(avg_cov_p)
 # Plot the average read depth per sample
 
-avg_cov_out = paste(batch_dir, batch, "-avg-cov.png", sep="")
+avg_cov_out = paste(batch_dir, batch, "-avg-cov.pdf", sep="")
 cat(as.character(Sys.time()), " | Saving average coverage plot:", avg_cov_out, "\n")
 ggsave(avg_cov_out, avg_cov_p, width=10, height=4, units="in")
 # Save the plot
@@ -155,7 +155,7 @@ perc_reads_p = ggplot(coverage, aes(x=sample, y=perc.reads.mapped)) +
 #print(perc_reads_p)
 # Plot the percent of reads mapped per sample
 
-perc_reads_p_out = paste(batch_dir, batch, "-percent-mapped.png", sep="")
+perc_reads_p_out = paste(batch_dir, batch, "-percent-mapped.pdf", sep="")
 cat(as.character(Sys.time()), " | Saving % reads mapped plot:", perc_reads_p_out, "\n")
 ggsave(perc_reads_p_out, perc_reads_p, width=10, height=4, units="in")
 # Save the plot
@@ -261,7 +261,7 @@ n_p = ggplot(stats, aes(x=sample, y=ivar.Ns, color="iVar")) +
 #print(perc_n_p)
 # Plot the number of Ns for each sample
 
-n_p_out = paste(batch_dir, batch, "-num-Ns.png", sep="")
+n_p_out = paste(batch_dir, batch, "-num-Ns.pdf", sep="")
 cat(as.character(Sys.time()), " | Saving Ns plot:", n_p_out, "\n")
 ggsave(n_p_out, n_p, width=10, height=4, units="in")
 # Save the plot
