@@ -1,0 +1,28 @@
+name: UM-CoV-Seq
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+dependencies:
+  - samtools
+  - multiqc
+  - bwa
+  - qualimap
+  - fastp
+  - snakemake
+  - ivar
+  - biopython=1.74
+  - minimap2>=2.16
+  - pip=19.3.1
+  - python>=3.7
+  - snakemake-minimal>=5.13
+  - gofasta
+  - usher
+  - pangolin
+  - bcftools
+  - gatk4
+  - pip:
+    - pandas
+    - git+https://github.com/cov-lineages/pangoLEARN.git
+    - git+https://github.com/cov-lineages/scorpio.git
+    - git+https://github.com/cov-lineages/constellations.git
