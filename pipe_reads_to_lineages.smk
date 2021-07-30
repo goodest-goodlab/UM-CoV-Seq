@@ -493,7 +493,7 @@ rule gatk_haplotypecaller:
         gvcf = bd("results/gatk/{sample}.gvcf.gz")
     shell:
         """
-        gatk HaplotypeCaller -R {input.ref} -I {input.sample} -stand-call-conf 30 --native-pair-hmm-threads 4 -ERC GVCF -O {output.gvcf} > {log.hc_log} 2>&1
+        gatk HaplotypeCaller -R {input.ref} -I {input.sample} --sample-ploidy 1 -stand-call-conf 30 --native-pair-hmm-threads 4 -ERC GVCF -O {output.gvcf} > {log.hc_log} 2>&1
         """
 
 ## gatk_genotypgvcfs: Genotype the GVCFs from the previous steps and emit all sites to 
@@ -510,7 +510,7 @@ rule gatk_genotypegvcfs:
         vcf = bd("results/gatk/{sample}.vcf.gz")
     shell:
         """
-        gatk GenotypeGVCFs -R {input.ref} -V {input.gvcf} -O {output.vcf} --include-non-variant-sites > {log.gt_log} 2>&1
+        gatk GenotypeGVCFs -R {input.ref} -V {input.gvcf} -O {output.vcf} --sample-ploidy 1 --include-non-variant-sites > {log.gt_log} 2>&1
         """
 
 ## filter_vcfs: Filter variants with bcftools.
