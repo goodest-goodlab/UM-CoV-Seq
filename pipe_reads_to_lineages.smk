@@ -136,7 +136,6 @@ onstart:
         writer.writerow(["Reference genome used:", REF])
         writer.writerow(["GFF file used:", GFF])
         writer.writerow(["Start time:", start_time.strftime("%B %d, %Y: %H:%M:%S")])
-	writer.writerow([samples,"foo"])
         
 
 onsuccess:
@@ -188,7 +187,7 @@ rule trim_and_merge_raw_reads:
         bd("logs/fastp/{sample}_trim_log.txt")
     shell:
         """
-        fastp -i {input.raw_r1} -I {input.raw_r2} -m --merged_out {output.trim_merged} --out1 {output.trim_r1_pair} --out2 {output.trim_r2_pair} --unpaired1 {output.trim_r1_nopair} --unpaired2 {output.trim_r2_nopair} --detect_adapter_for_pe --cut_front --cut_front_window_size 5 --cut_front_mean_quality 20 -l 25 -j {output.rep_json} -h {output.rep_html} -w 1 2> {log}
+        fastp -i {input.raw_r1} -I {input.raw_r2} -m --merged_out {output.trim_merged} --out1 {output.trim_r1_pair} --out2 {output.trim_r2_pair} --unpaired1 {output.trim_r1_nopair} --unpaired2 {output.trim_r2_nopair} --detect_adapter_for_pe --cut_front --cut_front_window_size 5 --cut_front_mean_quality 20 -l 25 -j {output.rep_json} -h {output.rep_html} -w $SLURM_CPUS_PER_TASK 2> {log}
         """
 
 
@@ -262,7 +261,7 @@ rule map_merged_reads:
     shell:
         """
         # Run bwa mem, pipe to samtools view to convert to bam, pipe to samtools sort
-        bwa mem -M -t 1 -R '{params.read_group}' {input.genome} {input.reads} 2> {log} | samtools view -b - 2>> {log} | samtools sort - -o {output} 2>> {log}
+        bwa mem -M -t $SLURM_CPUS_PER_TASK -R '{params.read_group}' {input.genome} {input.reads} 2> {log} | samtools view -b - 2>> {log} | samtools sort - -o {output} 2>> {log}
         """
 
 # # map_unmerged_pairs: map trimmed, not merged, paired reads to reference
@@ -291,7 +290,7 @@ rule map_unmerged_pairs:
     shell:
         """
         # Run bwa mem, pipe to samtools view to convert to bam, pipe to samtools sort 
-        bwa mem -M -t 1 -R '{params.read_group}' {input.genome} {input.reads_forward} {input.reads_reverse} 2> {log} | samtools view -b - 2>> {log} | samtools sort - -o {output} 2>> {log}
+        bwa mem -M -t $SLURM_CPUS_PER_TASK -R '{params.read_group}' {input.genome} {input.reads_forward} {input.reads_reverse} 2> {log} | samtools view -b - 2>> {log} | samtools sort - -o {output} 2>> {log}
         """
 
 ## map_unmerged_unpaired: map trimmed, unmerged, unpaired reads to reference
@@ -323,10 +322,10 @@ rule map_unmerged_unpaired:
         """
         # Run bwa mem, pipe to samtools view to convert to bam, save as a tmp.bam
         # Read 1
-        bwa mem -M -t 1 -R '{params.read_group}' {input.genome} {input.reads_forward} 2> {log.forward} | samtools view -b - 2>> {log.forward} | samtools sort - -o {output.mapped_forward} 2>> {log.forward}
+        bwa mem -M -t $SLURM_CPUS_PER_TASK -R '{params.read_group}' {input.genome} {input.reads_forward} 2> {log.forward} | samtools view -b - 2>> {log.forward} | samtools sort - -o {output.mapped_forward} 2>> {log.forward}
 
         # Read 2
-        bwa mem -M -t 1 -R '{params.read_group}' {input.genome} {input.reads_reverse} 2> {log.rev} | samtools view -b - 2>> {log.rev} | samtools sort - -o {output.mapped_reverse} 2>> {log.rev}
+        bwa mem -M -t $SLURM_CPUS_PER_TASK -R '{params.read_group}' {input.genome} {input.reads_reverse} 2> {log.rev} | samtools view -b - 2>> {log.rev} | samtools sort - -o {output.mapped_reverse} 2>> {log.rev}
         """
 
 ## merge_bams_by_sample : merge bam files by sample and run
@@ -380,7 +379,7 @@ rule qualimap_raw_bam:
         bd("logs/qualimap/{sample}.log")
     shell:
         """
-        qualimap bamqc -bam {input.bam} -nt 1 -outdir {params.out_dir} -outformat html --java-mem-size=4G > {log} 2>&1
+        qualimap bamqc -bam {input.bam} -nt $SLURM_CPUS_PER_TASK -outdir {params.out_dir} -outformat html --java-mem-size=4G > {log} 2>&1
         """
 
 ## multiqc_raw_bam_report: collate qualimap reports on raw bams
