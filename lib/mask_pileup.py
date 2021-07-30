@@ -28,7 +28,7 @@ with open(output_file, "w") as outfile:
         line_list = line.strip().split("\t");
         # Parse every line in the input pileup file
 
-        if line[1] not in problematic_sites:
+        if line_list[1] not in problematic_sites:
             outfile.write(line);
         # If the line is not one of the problematic sites, write it as-is to the output file
         else:
