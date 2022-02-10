@@ -136,8 +136,6 @@ onstart:
         writer.writerow(["Reference genome used:", REF])
         writer.writerow(["GFF file used:", GFF])
         writer.writerow(["Start time:", start_time.strftime("%B %d, %Y: %H:%M:%S")])
-	writer.writerow([samples,"foo"])
-        
 
 onsuccess:
     smk_copy_command = 'cp pipe_reads_to_lineages.smk ' + str(bd("snakefile_used_copy.smk"))
