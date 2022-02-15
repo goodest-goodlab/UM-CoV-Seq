@@ -53,12 +53,20 @@ multiqc_file = args[4]
 # The multiqc file with coverage info
 
 ivar_dir = args[5]
+gatk_dir = args[6]
 # The directories containing the variant calls 
 
-ivar_cons_file = args[6]
+ivar_cons_file = args[7]
+gatk_cons_file = args[8]
 # The stats files for the consensus sequences
 
-ivar_pangolin_file = args[7]
+ivar_pangolin_file = args[9]
+gatk_pangolin_file = args[10]
+# The pangolin lineages reports
+
+ivar_nextclade_file = args[11]
+gatk_nextclade_file = args[12]
+# The nextclade lineage reports
 
 ###############
 # Determin output file
@@ -158,7 +166,7 @@ ggsave(perc_reads_p_out, perc_reads_p, width=10, height=4, units="in")
 cat(as.character(Sys.time()), " | Counting ivar variants\n")
 tsvs <- list.files(ivar_dir, pattern = ".tsv", full.names = T)
 #variants <- data.frame(sample = rep(NA, length(tsvs)), ivar_vars = rep(NA, length(tsvs)))
-variants = data.frame("sample"=c(), "ivar.num.vars"=c())#, "ivar.vars"=c())
+ivar_vars = data.frame("sample"=c(), "ivar.num.vars"=c(), "ivar.vars"=c())
 i <- 1
 for (file in tsvs) {
   sample <- str_remove(basename(file), ".tsv")
@@ -168,27 +176,85 @@ for (file in tsvs) {
     cur_var = paste(cur_vars_df[j,]$POS, cur_vars_df[j,]$ALT, sep=":")
     cur_vars = c(cur_vars, cur_var)
   }
-  variants = rbind(variants, data.frame("sample"=sample, 
-                                          "ivar.num.vars"=nrow(cur_vars_df)))
+  ivar_vars = rbind(ivar_vars, data.frame("sample"=sample, 
+                                          "ivar.num.vars"=nrow(cur_vars_df), 
+                                          "ivar.vars"=I(list(cur_vars))))
   i <- i + 1
 }
 # Count ivar variants
 
+cat(as.character(Sys.time()), " | Counting gatk variants\n")
+vcfs = list.files(gatk_dir, pattern=".masked.fvcf.gz", full.names=T)
+vcfs = vcfs[ !grepl(".tbi", vcfs) ]
+gatk_vars = data.frame("sample"=c(), "gatk.num.vars"=c(), "gatk.vars"=c())
+for(file in vcfs){
+  sample = str_remove(basename(file), ".masked.fvcf.gz")
+  cur_vars_df = read.csv(file, comment.char="#", sep="\t", header=F)
+  cur_vars_df = subset(cur_vars_df, V5!= "." & V5 != "*" & V5 != "N" & V7 == "PASS")
+  cur_vars = c()
+  for(j in 1:nrow(cur_vars_df)){
+    cur_var = paste(cur_vars_df[j,]$V2, cur_vars_df[j,]$V5, sep=":")
+    cur_vars = c(cur_vars, cur_var)
+  }
+  gatk_vars = rbind(gatk_vars, data.frame("sample"=sample, 
+                                          "gatk.num.vars"=nrow(cur_vars_df), 
+                                          "gatk.vars"=I(list(cur_vars))))
+  i <- i + 1
+}
+# Count gatk variants
+
+cat(as.character(Sys.time()), " | Combining and comparing variant calls\n")
+variants = merge(ivar_vars, gatk_vars, by="sample")
+variants$num.shared = NA
+# Merge ivar and gatk variant counts
+
+for(i in 1:nrow(variants)){
+  cur_sample = variants[i,]
+  #print(cur_sample$sample)
+  ivar_vars = data.frame("sample"=cur_sample$sample, "var"=unlist(cur_sample$ivar.vars))
+  gatk_vars = data.frame("sample"=cur_sample$sample, "var"=unlist(cur_sample$gatk.vars))
+  
+  ivar_uniq = ivar_vars[!ivar_vars$var %in% gatk_vars$var,]
+  gatk_uniq = gatk_vars[!gatk_vars$var %in% ivar_vars$var,]
+  shared = ivar_vars[ivar_vars$var %in% gatk_vars$var,]
+
+  variants[i,]$num.shared = nrow(shared)
+}
+# Count the number of variants that are shared between ivar and gatk for all samples
+# May want to plot this somehow? But with so much agreement that seems pointless right now
+
+###############
+# Process the consensus stats files
+
 cat(as.character(Sys.time()), " | Getting ivar consensus stats\n")
-stats <- read.csv(ivar_cons_file, header=T) %>% 
+ivar_stats <- read.csv(ivar_cons_file, header=T) %>% 
   select(sample, N, length, perc.n, n.filter)
-names(stats) = c("sample", "ivar.Ns", "ivar.length", "ivar.perc.n", "ivar.n.filter")
+names(ivar_stats) = c("sample", "ivar.Ns", "ivar.length", "ivar.perc.n", "ivar.n.filter")
+# Read the ivar stats
+
+cat(as.character(Sys.time()), " | Getting gatk consensus stats\n")
+gatk_stats <- read.csv(gatk_cons_file, header=T) %>% 
+  select(sample, N, length, perc.n, n.filter)
+names(gatk_stats) = c("sample", "gatk.Ns", "gatk.length", "gatk.perc.n", "gatk.n.filter")
+# Read the gatk stats
+
+cat(as.character(Sys.time()), " | Combining consensus stats\n")
+stats = merge(ivar_stats, gatk_stats, by="sample")
+# Merge the ivar and gatk consensus stats
 
 cat(as.character(Sys.time()), " | Generating Ns plot\n")
 n_p = ggplot(stats, aes(x=sample, y=ivar.Ns, color="iVar")) +
   geom_segment(aes(x=sample, y=0, xend=sample, yend=ivar.Ns), linetype="dotted", color="#666666") +
   geom_point(size=2, color="#920000") +
+  geom_segment(aes(x=sample, y=0, xend=sample, yend=gatk.Ns), linetype="dotted", color="#666666") +
+  geom_point(aes(x=sample, y=gatk.Ns, color="GATK"), size=2) +
   geom_hline(yintercept=5000, size=1, linetype="dashed", color="#56b4e9") +
   geom_text_repel(aes(label=ifelse(ivar.n.filter=="FILTER", as.character(sample), "")), show.legend=FALSE) +
+  geom_text_repel(aes(label=ifelse(gatk.n.filter=="FILTER", as.character(sample), "")), show.legend=FALSE) +
   scale_y_continuous(expand=c(0,0), limits=c(0,31000)) +
   ylab("# Ns") +
   xlab(paste(batch, "sample")) +
-  scale_color_manual(name="", values=c("iVar"="#920000")) +
+  scale_color_manual(name="", values=c("iVar"="#920000", "GATK"="#db6d00")) +
   bartheme() +
   theme(axis.text.x=element_text(angle=45, hjust=1, size=6),
         legend.position="bottom")
@@ -204,23 +270,55 @@ ggsave(n_p_out, n_p, width=10, height=4, units="in")
 # Pangolin
 
 cat(as.character(Sys.time()), " | Reading ivar pangolin lineages\n")
-pangolin <- read.csv(ivar_pangolin_file) %>% 
+ivar_pangolin <- read.csv(ivar_pangolin_file) %>% 
   separate(taxon, into = c("ext", "sample", "ext2", "ext3", "ext4", "ext5"), sep = "_") %>% 
   select(sample, ivar_pango_qc = status, ivar_pango_lineage = lineage) 
 # Read the ivar lineages
 
+cat(as.character(Sys.time()), " | Reading gatk pangolin lineages\n")
+gatk_pangolin <- read.csv(gatk_pangolin_file) %>% 
+  separate(taxon, into = c("sample", "ext1", "ext2", "ext3", "ext4", "ext5", "ext6",
+                           "ext7", "ext8", "ext9", "ext10", "ext11", "ext12", "ext13"), sep = "_") %>% 
+  select(sample, gatk_pango_qc = status, gatk_pango_lineage = lineage) 
+# Read the gatk lineages
+
+cat(as.character(Sys.time()), " | Combining and comparing pangolin lineages\n")
+pangolin = merge(ivar_pangolin, gatk_pangolin, by="sample")
+pangolin$pango.match = ifelse(as.character(pangolin$gatk_pango_lineage) == as.character(pangolin$ivar_pango_lineage), 1, 0)
+# Merge the ivar and gatk tables and add a column based on whether they match or not
+
+###############
+# Nextclade
+
+cat(as.character(Sys.time()), " | Reading ivar nextclade lineages\n")
+ivar_nextclade <- read.delim(ivar_nextclade_file, sep = "\t", na.strings = "") %>% 
+  separate(seqName, into = c("ext", "sample", "ext2", "ext3", "ext4", "ext5"), sep = "_") %>% 
+  select(sample, ivar_next_qc = qc.overallStatus, ivar_next_clade = clade) 
+# Read the ivar lineages
+
+cat(as.character(Sys.time()), " | Reading gatk nextclade lineages\n")
+gatk_nextclade <- read.delim(gatk_nextclade_file, sep = "\t", na.strings = "") %>% 
+  separate(seqName, into = c("sample", "ext1", "ext2"), sep = "_") %>% 
+  select(sample, gatk_next_qc = qc.overallStatus, gatk_next_clade = clade) 
+# Read the gatk lineages
+
+cat(as.character(Sys.time()), " | Combining and comparing nextclade lineages\n")
+nextclade = merge(ivar_nextclade, gatk_nextclade, by="sample")
+nextclade$nextclade.match = ifelse(as.character(nextclade$gatk_next_clade) == as.character(nextclade$ivar_next_clade), 1, 0)
+# Merge the ivar and gatk tables and add a column based on whether they match or not
 
 ###############
 # Combine tables
 # Tables at this point should includes: stats, coverage, variants, pangolin, nextclade
 
-#variants = subset(variants, select=-c(ivar.vars, gatk.vars))
+variants = subset(variants, select=-c(ivar.vars, gatk.vars))
 # Remove the list of variants from the variants table before merging to final table
 
 cat(as.character(Sys.time()), " | Combining all tables\n")
 final_table = merge(coverage, stats, by="sample")
 final_table = merge(final_table, variants, by="sample")
 final_table = merge(final_table, pangolin, by="sample")
+final_table = merge(final_table, nextclade, by="sample")
 final_table$sample = str_replace(final_table$sample, "-ICV", "")
 # Merge all the tables
 
@@ -229,8 +327,10 @@ write.csv(final_table, file=output_file, row.names=F)
 # Write the summary output file
 
 cat("------------------------------------\n")
-passing_samples = subset(final_table, ivar.n.filter=="PASS" & cov.filter == "PASS")
+passing_samples = subset(final_table, ivar.n.filter=="PASS" & gatk.n.filter=="PASS" & cov.filter == "PASS")
 cat(as.character(Sys.time()), " | NUMBER OF SAMPLES THAT PASS ALL FILTERS IN BOTH PIPELINES:", nrow(passing_samples), "/", nrow(final_table), "\n")
+cat(as.character(Sys.time()), " | PASSING SAMPLES WITH PANGOLIN LINEAGE MATCHES:            ", sum(passing_samples$pango.match), "/", nrow(passing_samples), "\n")
+cat(as.character(Sys.time()), " | PASSING SAMPLES WITH NEXTCLADE LINEAGE MATCHES:           ", sum(passing_samples$nextclade.match), "/", nrow(passing_samples), "\n")
 # Print out some counts about samples that pass filters and matching lineages.
 
 ###############
