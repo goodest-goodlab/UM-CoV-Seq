@@ -56,7 +56,7 @@ for i in range(len(vcflines)):
     # FILTER column.
 
     genotype = vcflines[i][9].split(":")[0];
-    if genotype == ".":
+    if genotype == "./.":
         vcflines[i][4] = "N";
         vcflines[i][6] = "PASS";
     # To mask sites without enough info for a call, switch their alt allele to N and the filter to PASS to ensure
