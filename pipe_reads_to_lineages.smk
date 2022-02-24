@@ -79,7 +79,7 @@ index_path= REF + ".amb"
 # sample ID back to its fastq files.
 # This assumes that each sample only has one set of sequence files in a given folder. 
 def get_R1_for_sample(wildcards):
-    outfile = "file_not_found.txt"
+    outfile = wildcards.sample
     for filename in fasta_fullpath:
         if re.search(wildcards.sample, filename):
             if re.search("R1", filename):
@@ -87,7 +87,7 @@ def get_R1_for_sample(wildcards):
     return outfile
 
 def get_R2_for_sample(wildcards):
-    outfile = "file_not_found.txt"
+    outfile = wildcards.sample
     for filename in fasta_fullpath:
         if re.search(wildcards.sample, filename):
             if re.search("R2", filename):
@@ -187,7 +187,7 @@ rule trim_and_merge_raw_reads:
         bd("logs/fastp/{sample}_trim_log.txt")
     shell:
         """
-        fastp -i {input.raw_r1} -I {input.raw_r2} -m --merged_out {output.trim_merged} --out1 {output.trim_r1_pair} --out2 {output.trim_r2_pair} --unpaired1 {output.trim_r1_nopair} --unpaired2 {output.trim_r2_nopair} --detect_adapter_for_pe --cut_front --cut_front_window_size 5 --cut_front_mean_quality 20 -l 25 -j {output.rep_json} -h {output.rep_html} -w $SLURM_CPUS_PER_TASK 2> {log}
+        fastp -i {input.raw_r1} -I {input.raw_r2} -m --merged_out {output.trim_merged} --out1 {output.trim_r1_pair} --out2 {output.trim_r2_pair} --unpaired1 {output.trim_r1_nopair} --unpaired2 {output.trim_r2_nopair} --detect_adapter_for_pe --cut_front --cut_front_window_size 5 --cut_front_mean_quality 20 -l 25 -j {output.rep_json} -h {output.rep_html} -w 1 2> {log}
         """
 
 
@@ -261,7 +261,7 @@ rule map_merged_reads:
     shell:
         """
         # Run bwa mem, pipe to samtools view to convert to bam, pipe to samtools sort
-        bwa mem -M -t $SLURM_CPUS_PER_TASK -R '{params.read_group}' {input.genome} {input.reads} 2> {log} | samtools view -b - 2>> {log} | samtools sort - -o {output} 2>> {log}
+        bwa mem -M -t 1 -R '{params.read_group}' {input.genome} {input.reads} 2> {log} | samtools view -b - 2>> {log} | samtools sort - -o {output} 2>> {log}
         """
 
 # # map_unmerged_pairs: map trimmed, not merged, paired reads to reference
@@ -290,7 +290,7 @@ rule map_unmerged_pairs:
     shell:
         """
         # Run bwa mem, pipe to samtools view to convert to bam, pipe to samtools sort 
-        bwa mem -M -t $SLURM_CPUS_PER_TASK -R '{params.read_group}' {input.genome} {input.reads_forward} {input.reads_reverse} 2> {log} | samtools view -b - 2>> {log} | samtools sort - -o {output} 2>> {log}
+        bwa mem -M -t 1 -R '{params.read_group}' {input.genome} {input.reads_forward} {input.reads_reverse} 2> {log} | samtools view -b - 2>> {log} | samtools sort - -o {output} 2>> {log}
         """
 
 ## map_unmerged_unpaired: map trimmed, unmerged, unpaired reads to reference
@@ -322,10 +322,10 @@ rule map_unmerged_unpaired:
         """
         # Run bwa mem, pipe to samtools view to convert to bam, save as a tmp.bam
         # Read 1
-        bwa mem -M -t $SLURM_CPUS_PER_TASK -R '{params.read_group}' {input.genome} {input.reads_forward} 2> {log.forward} | samtools view -b - 2>> {log.forward} | samtools sort - -o {output.mapped_forward} 2>> {log.forward}
+        bwa mem -M -t 1 -R '{params.read_group}' {input.genome} {input.reads_forward} 2> {log.forward} | samtools view -b - 2>> {log.forward} | samtools sort - -o {output.mapped_forward} 2>> {log.forward}
 
         # Read 2
-        bwa mem -M -t $SLURM_CPUS_PER_TASK -R '{params.read_group}' {input.genome} {input.reads_reverse} 2> {log.rev} | samtools view -b - 2>> {log.rev} | samtools sort - -o {output.mapped_reverse} 2>> {log.rev}
+        bwa mem -M -t 1 -R '{params.read_group}' {input.genome} {input.reads_reverse} 2> {log.rev} | samtools view -b - 2>> {log.rev} | samtools sort - -o {output.mapped_reverse} 2>> {log.rev}
         """
 
 ## merge_bams_by_sample : merge bam files by sample and run
@@ -379,7 +379,7 @@ rule qualimap_raw_bam:
         bd("logs/qualimap/{sample}.log")
     shell:
         """
-        qualimap bamqc -bam {input.bam} -nt $SLURM_CPUS_PER_TASK -outdir {params.out_dir} -outformat html --java-mem-size=4G > {log} 2>&1
+        qualimap bamqc -bam {input.bam} -nt 1 -outdir {params.out_dir} -outformat html --java-mem-size=4G > {log} 2>&1
         """
 
 ## multiqc_raw_bam_report: collate qualimap reports on raw bams
@@ -414,35 +414,32 @@ rule pileup:
         sample = bd("processed_reads/per_sample_bams/{sample}.sorted.bam"),
         ref=REF
     output:
-        var_pileup = bd("results/pileup/{sample}-var.pileup"),
-        cons_pileup = bd("results/pileup/{sample}-cons.pileup")
+        pileup = bd("results/pileup/{sample}.pileup"),
     log:
-        var=bd("logs/pileup/{sample}-var.log"),
-        cons=bd("logs/pileup/{sample}-cons.log")
+        pileup=bd("logs/pileup/{sample}-pileup.log"),
     shell:
         """
-        samtools mpileup -aa -A -d 0 -B -Q 0 --reference {input.ref} {input.sample} > {output.var_pileup} 2> {log.var}
+        samtools mpileup -aa -A -d 0 -B -Q 0 --reference {input.ref} {input.sample} > {output.pileup} 2> {log.pileup}
 
-        samtools mpileup -aa -A -d 0 -B -Q 0 --reference {input.ref} {input.sample} > {output.cons_pileup} 2> {log.cons}
         """
 
 ## mask_pileup: Mask problematic sites from the pileups by converting all mapped bases at those
 # positions to the reference base, preventing variants from being called.
-rule mask_pileup:
-    input:
-        var_pileup = bd("results/pileup/{sample}-var.pileup"),
-        cons_pileup = bd("results/pileup/{sample}-cons.pileup")       
-    output:
-        masked_var_pileup = bd("results/pileup/{sample}-var.masked.pileup"),
-        masked_cons_pileup = bd("results/pileup/{sample}-cons.masked.pileup")
-    log:
-        var=bd("logs/mask_pileup/{sample}-var.log"),
-        cons=bd("logs/mask_pileup/{sample}-cons.log")
-    shell:
-        """
-        python lib/mask_pileup.py {input.var_pileup} {output.masked_var_pileup} > {log.var} 2>&1
-        python lib/mask_pileup.py {input.cons_pileup} {output.masked_cons_pileup} > {log.cons} 2>&1
-        """
+#rule mask_pileup:
+#    input:
+#        var_pileup = bd("results/pileup/{sample}-var.pileup"),
+#        cons_pileup = bd("results/pileup/{sample}-cons.pileup")       
+#    output:
+#        masked_var_pileup = bd("results/pileup/{sample}-var.masked.pileup"),
+#        masked_cons_pileup = bd("results/pileup/{sample}-cons.masked.pileup")
+#    log:
+#        var=bd("logs/mask_pileup/{sample}-var.log"),
+#        cons=bd("logs/mask_pileup/{sample}-cons.log")
+#    shell:
+#        """
+#        python lib/mask_pileup.py {input.var_pileup} {output.masked_var_pileup} > {log.var} 2>&1
+#        python lib/mask_pileup.py {input.cons_pileup} {output.masked_cons_pileup} > {log.cons} 2>&1
+#        """
 
 ## ivar_raw_bams: Call variants and make consensus seqs for the raw bams
 # samtools mipileup into ivar 
@@ -457,8 +454,7 @@ rule mask_pileup:
 # -t 0.5 50% of reads needed for calling consensus base
 rule ivar_variant_and_consensus:
     input:
-        masked_var_pileup = bd("results/pileup/{sample}-var.masked.pileup"),
-        masked_cons_pileup = bd("results/pileup/{sample}-cons.masked.pileup"),
+        pileup = bd("results/pileup/{sample}.pileup"),
         sample = bd("processed_reads/per_sample_bams/{sample}.sorted.bam"),
         ref=REF,
         gff=GFF
@@ -474,10 +470,10 @@ rule ivar_variant_and_consensus:
     shell:
         """
         # Call Variants
-        cat {input.masked_var_pileup} | ivar variants -p {params.basename} -q 20 -t 0.5 -m 10 -r {input.ref} -g {input.gff} > {log.var} 2>&1
+        cat {input.pileup} | ivar variants -p {params.basename} -q 20 -t 0.5 -m 10 -r {input.ref} -g {input.gff} > {log.var} 2>&1
 
         # Make Consensus sequence
-        cat {input.masked_cons_pileup} | ivar consensus -p {params.basename} -q 20 -t 0.5 -m 10 > {log.cons} 2>&1
+        cat {input.pileup} | ivar consensus -p {params.basename} -q 20 -t 0.5 -m 10 > {log.cons} 2>&1
         """
 
 ## gatk_haplotypecaller: Call variants with GATK. Emit all sites (-ERC GVCF) for genotyping
@@ -535,7 +531,7 @@ rule filter_vcfs:
         bcftools filter -m+ -e 'MQ < 30.0 || FORMAT/DP < 10 || FORMAT/DP > 1200 || FORMAT/GQ < 20 || FORMAT/AD[0:1] / FORMAT/DP < 0.5 || ALT="*"' -s FILTER --IndelGap 5 -Oz -o {output.fvcf} {input.vcf} > {log.gt_log} 2>&1
         """
     
-## mask_vcfs: Mask/filter GATK variants at positions in the problematic sites VCF file.
+# mask_vcfs: Mask/filter GATK variants at positions without sufficent info to call
 rule mask_vcfs:
     input:
         fvcf = bd("results/gatk/{sample}.fvcf.gz")
