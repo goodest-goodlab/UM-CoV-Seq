@@ -33,9 +33,6 @@ input_file, output_file = sys.argv[1:];
 # input_file: An input VCF file
 # output_file: An output, masked VCF file
 
-problematic_vcf = "ProblematicSites_SARS-CoV2/problematic_sites_sarsCov2.vcf";
-problematic_sites = readVCF(problematic_vcf);
-
 input_file_unzipped = input_file.replace(".gz", "");
 output_file_unzipped = output_file.replace(".gz", "");
 os.system("gunzip " + input_file);
@@ -48,15 +45,8 @@ for i in range(len(vcflines)):
         continue;
     # Check each SNP in the VCF file; skip the header lines.
 
-    for site in problematic_sites:
-        if vcflines[i][1] == site[1] and vcflines[i][4] in site[4] and vcflines[i][6] == "PASS":
-            vcflines[i][6] = "FILTER";
-            num_filtered += 1;
-    # Check each SNP in the provided -vcf file. If it matches the current SNP, add the filter string to the
-    # FILTER column.
-
     genotype = vcflines[i][9].split(":")[0];
-    if genotype == "./.":
+    if genotype == ".":
         vcflines[i][4] = "N";
         vcflines[i][6] = "PASS";
     # To mask sites without enough info for a call, switch their alt allele to N and the filter to PASS to ensure
