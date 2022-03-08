@@ -12,19 +12,13 @@ start_time = datetime.now()
 ################# 
 
 # Mostly pulled from config file
+INPUT_DIR = config["input_dir"]
 
-# The name of the batch based on the MiSeq run ID found in the sample file. Should also be present
-BATCH_NAME = config["batch"]
-# Batch 1, received 06.10.2021: V3P67 : runtime with 20 cores: 2913.04 seconds (49 mins)
-# Batch 2, received 07.15.2021: V4R1  : runtime with 20 cores: 2201.23 seconds (37 mins)
+SEQUENCER = config["sequencer"]
 
+OUTPUT_DIR = config["output_dir"]
 
-# The sample file with barcods, UMGC IDs, data source, and MiSeq run ID.
-SAMPLE_FILE = config["sample_file"]
-
-# List the directory containing subdirectories for all sequence batches. The exact directory for this
-# batch will be determined by the BATCH_NAME.
-BASE_DATA_FOLDER = config["base_data_folder"]
+ANALYSIS = config["analysis"]
 
 # List the reference genome you want to map to:
 REF = config["ref_genome"]
@@ -32,32 +26,27 @@ REF = config["ref_genome"]
 # List the GFF file you want to use:
 GFF = config["ref_gff"]
 
-BASE_BATCH_DIR = os.path.normpath(os.path.join("results", BATCH_NAME))
-
 ###############
 ##   SETUP   ##
 ############### 
 
-# Get the raw data folder based on the current batch name
-indirs = os.listdir(BASE_DATA_FOLDER)
-RAW_DATA_FOLDER = "unassigned"
-for indir in indirs:
-    if BATCH_NAME in indir:
-        RAW_DATA_FOLDER = os.path.join(BASE_DATA_FOLDER, indir)
+# Check that the input folder exists
+if os.path.isdir(INPUT_DIR) == False:
+    raise OSError("\nInput directory " + INPUT_DIR + " not found\n")
 
-# Raise a sensible error if the folder doesn't exist
-if RAW_DATA_FOLDER == "unassigned":
-    raise OSError("Folder matching given batch name not found in base_data_folder")
 
 # Pull all sample files from the raw data folder
-# get filenames of the individual fastas
-fasta_fullpath = []
+# get filenames of the individual fastq files
+fastq_fullpath = []
 samples = []
-for root, dirs, files in os.walk(RAW_DATA_FOLDER):
+for root, dirs, files in os.walk(INPUT_DIR):
     for name in files:
         if re.search("_S\d+_L\d+_R[12]_001.fastq.gz$", name):
             samples.append(re.sub("_S\d+_L\d+_R[12]_001.fastq.gz$", "", name))
-            fasta_fullpath.append(os.path.join(root, name))
+            fastq_fullpath.append(os.path.join(root, name))
+
+if len(fastq_fullpath) < 1:
+    raise OSError("\nNo .fastq.gz files matching Illumina naming scheme found in input dir:\n" + INPUT_DIR + "\n")
 
 # Get unique sample IDs
 samples = list(set(samples))
@@ -65,38 +54,76 @@ samples.sort()
 
 # Can comment/uncomment the below line for testing,
 # to run pipeline on just the first two samples. 
-# samples = samples[1:3]
+# TODO?: Formalize testing mechanism in config file
+samples = samples[1:8]
+
+
+# Optional sample removal
+samples_to_remove = config["exclude_samples"]
+if (len(samples_to_remove) >= 1):
+    for sample in samples_to_remove:
+        samples.remove(sample)
+
 
 # Get filename for the BWA genome index
 index_path= REF + ".amb"
+
+# Get expected number of lane files for
+# based on the sequencer type
+def files_per_sequencer(sequencer):
+    if (sequencer == "MiSeq"):
+        return 2
+    elif (sequencer == "NextSeq"):
+        return 4
+    else:
+        raise NameError("\n" +sequencer + " is not a valid option for sequencer. Valid options:\nMiSeq, NextSeq\n")
+
+
+expected_files = files_per_sequencer(SEQUENCER)
 
 
 ######################
 ## HELPER FUNCTIONS ##
 ######################
 
-# At the very start, need to match each
-# sample ID back to its fastq files.
-# This assumes that each sample only has one set of sequence files in a given folder. 
-def get_R1_for_sample(wildcards):
-    outfile = "file_not_found.txt"
-    for filename in fasta_fullpath:
-        if re.search(wildcards.sample, filename):
-            if re.search("R1", filename):
-                outfile = filename
-    return outfile
+# These new functions find all fastas for a given sample
+# They will be used in a new first step, to compile across 
+# lanes before the fastas go into the trimming step
+# RAN INTO AN ISSUE: sample names that matched the _SBARCODE numbers in the file
+# made the regex search at the beginning
+# Another new issue I'm running into:
+# partial matches of IDs agains tother IDs. 
+# Just added a leading underscore to the second half of the search string, so that the
+# sample ID is fully separated from the rest of the filename
+# and no partial mathcing is allowed. 
 
-def get_R2_for_sample(wildcards):
-    outfile = "file_not_found.txt"
-    for filename in fasta_fullpath:
-        if re.search(wildcards.sample, filename):
-            if re.search("R2", filename):
-                outfile = filename
-    return outfile
+
+# TODO: add a check that the number of read files is equal for a given sample,
+# and that their names match
+def find_R1_files(wildcards):
+    search_string = "^" + str({wildcards.sample}).strip("{'}") + "_.*_R1_.*\.fastq\.gz"
+    result = [f for f in fastq_fullpath if re.search(search_string, os.path.basename(f))]
+    result.sort()
+    if len(result) != expected_files:
+        #print(result)
+        print("Found " + str(len(result)) + " R1 files for sample " + str({wildcards.sample}).strip("{'}") + ", not " + str(expected_files))
+    return result
+
+def find_R2_files(wildcards):
+    search_string = "^" + str({wildcards.sample}).strip("{'}") + "_.*_R2_.*\.fastq\.gz"
+    result = [f for f in fastq_fullpath if re.search(search_string, os.path.basename(f))]
+    result.sort()
+    if len(result) != expected_files:
+        #print(result)
+        print("Found " + str(len(result)) + " R2 files for sample " + str({wildcards.sample}).strip("{'}") + ", not " + str(expected_files))
+    return result
+
+# TODO: add a check that the number of read files is equal for a given sample,
+# and that their names match
 
 # A function to create a readgroup for BWA from the sample, lane, and run info
 def make_RG(wildcards):
-    for filename in fasta_fullpath:
+    for filename in fastq_fullpath:
         if re.search(wildcards.sample, filename):
             if re.search("R1", filename):
                 basename = os.path.basename(filename)
@@ -113,11 +140,10 @@ def make_RG(wildcards):
     rg_out = "@RG\\tID:" + sample_ID + sample_num + "\\tLB:" + sample_ID + "\\tPL:ILLUMINA" + "\\tSM:" + sample_ID
     return rg_out
 
-# A short function to add the batch directory in front of 
-# subdirectory paths for inputs/outputs/params
-# isolates results between sequencing batchs/pipeline runs
+# A short function to add the output directory in front 
+# of filepaths, for ease of listing filenames below
 def bd(filepath):
-    return os.path.normpath(os.path.join("results", BATCH_NAME, filepath))
+    return os.path.normpath(os.path.join(OUTPUT_DIR, ANALYSIS, filepath))
 
 
 ####################
@@ -127,12 +153,13 @@ localrules: all
 
 # Onstart and onsuccess, make a log files and copy the snakefile that was used
 # into the results directory for posterity
-pipeline_log_file = bd("logs/pipeline_log.tsv")
+#  TODO: add logging of all config file stuff??
+pipeline_log_file = bd("pipeline_log.tsv")
 onstart:
     os.makedirs(os.path.dirname(pipeline_log_file), exist_ok=True)
     with open(pipeline_log_file, 'w') as tsvfile:
         writer = csv.writer(tsvfile, delimiter='\t')
-        writer.writerow(["Raw data folder used:", RAW_DATA_FOLDER])
+        writer.writerow(["Raw data folder used:", INPUT_DIR])
         writer.writerow(["Reference genome used:", REF])
         writer.writerow(["GFF file used:", GFF])
         writer.writerow(["Start time:", start_time.strftime("%B %d, %Y: %H:%M:%S")])
@@ -153,8 +180,25 @@ onsuccess:
 rule all:
     input:
         bd("results/multiqc/multiqc_report_trimming.html"), # QC report on trimming
-        bd(BATCH_NAME + "-summary.csv"), # Final summary of the rest of the results
-        bd("gisaid/gisaid.fa") # The fasta file to upload to gisaid with UMGC samples IDs instead of barcodes
+        #bd(ANALYSIS + "-summary.csv"), # Final summary of the rest of the results
+        #bd("gisaid/gisaid.fa") # The fasta file to upload to gisaid with UMGC samples IDs instead of barcodes
+
+
+## concat_fastas_across_lanes : combine multiple fasta files for the same sample
+rule concat_fastas_across_lanes:
+    input:
+        R1_files = find_R1_files,
+        R2_files = find_R2_files
+    output:
+        R1_out = temp(bd("processed_reads/reads_lane_concat/{sample}_R1.fastq.gz")),
+        R2_out = temp(bd("processed_reads/reads_lane_concat/{sample}_R2.fastq.gz"))
+    resources:
+        cpus = 1
+    shell:
+        """
+        cat {input.R1_files} > {output.R1_out}
+        cat {input.R2_files} > {output.R2_out}
+        """
 
 
 ## trim_raw_reads : remove adaptors and low-quality bases
@@ -171,8 +215,8 @@ rule all:
 # -h, -j Name of report HTML and JSON  output reports
 rule trim_and_merge_raw_reads:
     input:
-        raw_r1=get_R1_for_sample,
-        raw_r2=get_R2_for_sample
+        raw_r1=bd("processed_reads/reads_lane_concat/{sample}_R1.fastq.gz"),
+        raw_r2=bd("processed_reads/reads_lane_concat/{sample}_R2.fastq.gz")
     output:
         trim_merged= bd("processed_reads/trimmed/{sample}.merged.fq.gz"),
         trim_r1_pair= bd("processed_reads/trimmed/{sample}.nomerge.pair.R1.fq.gz"),
@@ -187,7 +231,7 @@ rule trim_and_merge_raw_reads:
         bd("logs/fastp/{sample}_trim_log.txt")
     shell:
         """
-        fastp -i {input.raw_r1} -I {input.raw_r2} -m --merged_out {output.trim_merged} --out1 {output.trim_r1_pair} --out2 {output.trim_r2_pair} --unpaired1 {output.trim_r1_nopair} --unpaired2 {output.trim_r2_nopair} --detect_adapter_for_pe --cut_front --cut_front_window_size 5 --cut_front_mean_quality 20 -l 25 -j {output.rep_json} -h {output.rep_html} -w $SLURM_CPUS_PER_TASK 2> {log}
+        fastp -i {input.raw_r1} -I {input.raw_r2} -m --merged_out {output.trim_merged} --out1 {output.trim_r1_pair} --out2 {output.trim_r2_pair} --unpaired1 {output.trim_r1_nopair} --unpaired2 {output.trim_r2_nopair} --detect_adapter_for_pe --cut_front --cut_front_window_size 5 --cut_front_mean_quality 20 -l 25 -j {output.rep_json} -h {output.rep_html} -w 1 2> {log}
         """
 
 
@@ -651,45 +695,45 @@ rule nextclade_assign_clade:
         """
 
 ## compile_results: Combine all summary tables and generate main table and GISAID table.
-rule compile_results:
-    input:
-        sample_file = SAMPLE_FILE,
-        multiqc = bd("results/multiqc/multiqc_report_raw_bams_data/multiqc_general_stats.txt"),
-        vcf = expand(bd("results/gatk/{sample}.masked.fvcf.gz"), sample = samples),
-        variants = expand(bd("results/ivar/{sample}.tsv"), sample = samples),
-        ivar_stats = bd("results/ivar/all_samples_consensus_stats.csv"),
-        gatk_stats = bd("results/gatk/all_samples_consensus_stats.csv"),
-        ivar_pangolin = bd("results/ivar-pangolin/lineage_report.csv"),
-        gatk_pangolin = bd("results/gatk-pangolin/lineage_report.csv"),
-        ivar_nextclade = bd("results/ivar-nextclade/nextclade_report.tsv"),
-        gatk_nextclade = bd("results/gatk-nextclade/nextclade_report.tsv")
-    output:
-        bd(BATCH_NAME + "-summary.csv")
-    params:
-        batch = BATCH_NAME,
-        batch_dir = BASE_BATCH_DIR + "/",
-        ivar_dir = bd("results/ivar/"),
-        gatk_dir = bd("results/gatk/")
-    log:
-        bd("logs/compile_results.log")
-    shell:
-        """
-        Rscript lib/compile_results.R {input.sample_file} {params.batch} {params.batch_dir} {input.multiqc} {params.ivar_dir} {params.gatk_dir} {input.ivar_stats} {input.gatk_stats} {input.ivar_pangolin} {input.gatk_pangolin} {input.ivar_nextclade} {input.gatk_nextclade} > {log} 2>&1
-        """
+#rule compile_results:
+#    input:
+#        sample_file = SAMPLE_FILE,
+#        multiqc = bd("results/multiqc/multiqc_report_raw_bams_data/multiqc_general_stats.txt"),
+#        vcf = expand(bd("results/gatk/{sample}.masked.fvcf.gz"), sample = samples),
+#        variants = expand(bd("results/ivar/{sample}.tsv"), sample = samples),
+#        ivar_stats = bd("results/ivar/all_samples_consensus_stats.csv"),
+#        gatk_stats = bd("results/gatk/all_samples_consensus_stats.csv"),
+#        ivar_pangolin = bd("results/ivar-pangolin/lineage_report.csv"),
+#        gatk_pangolin = bd("results/gatk-pangolin/lineage_report.csv"),
+#        ivar_nextclade = bd("results/ivar-nextclade/nextclade_report.tsv"),
+#        gatk_nextclade = bd("results/gatk-nextclade/nextclade_report.tsv")
+#    output:
+#        bd(ANALYSIS + "-summary.csv")
+#    params:
+#        batch = BATCH,
+#        batch_dir = BASE_BATCH_DIR + "/",
+#        ivar_dir = bd("results/ivar/"),
+#        gatk_dir = bd("results/gatk/")
+#    log:
+#        bd("logs/compile_results.log")
+#    shell:
+#        """
+#        Rscript lib/compile_results.R {input.sample_file} {params.batch} {params.batch_dir} {input.multiqc} {params.ivar_dir} {params.gatk_dir} {input.ivar_stats} {input.gatk_stats} {input.ivar_pangolin} {input.gatk_pangolin} {input.ivar_nextclade} {input.gatk_nextclade} > {log} 2>&1
+#        """
 
 ## gisaid_seqs: Combine sequences with GISAID headers
-rule gisaid_seqs:
-    input:
-        sample_file = SAMPLE_FILE,
-        summary_file = bd(BATCH_NAME + "-summary.csv")
-    params:
-        batch = BATCH_NAME,
-        ivar_dir = bd("results/ivar/")
-    output:
-        gisaid_file = bd("gisaid/gisaid.fa")
-    log:
-        bd("logs/gisaid_seq.log")
-    shell:
-        """
-        python lib/gisaid_seq.py {params.ivar_dir} {params.batch} {input.sample_file} {input.summary_file} {output.gisaid_file} > {log} 2>&1
-        """
+#rule gisaid_seqs:
+#    input:
+#        sample_file = SAMPLE_FILE,
+#        summary_file = bd(BATCH_NAME + "-summary.csv")
+#    params:
+#        batch = BATCH_NAME,
+#        ivar_dir = bd("results/ivar/")
+#    output:
+#        gisaid_file = bd("gisaid/gisaid.fa")
+#    log:
+#        bd("logs/gisaid_seq.log")
+#    shell:
+#        """
+#        python lib/gisaid_seq.py {params.ivar_dir} {params.batch} {input.sample_file} {input.summary_file} {output.gisaid_file} > {log} 2>&1
+#        """

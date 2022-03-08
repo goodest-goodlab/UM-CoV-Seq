@@ -1,0 +1,44 @@
+#####################################
+## Required configuration settings ##
+#####################################
+
+# Analysis batch name
+# This 
+analysis: pipe_testing_batch8
+
+# Input directory
+# Folder where where reads are stored. 
+input_dir: /home/core_projects/08_covid/08_Kennedy_011422_CovidSeq8/
+
+# Sequencer type
+# This determines the number of input files the pipeline will look for
+# (e.g., 2 for MiSeq, 4 for NextSeq), the pipeline will print a warning for samples
+# which do not have the appropriate number
+sequencer: NextSeq
+
+# Output directory
+# Directory where you would like the ouput files for this
+# analysis batch to be placed. 
+# The output files will be place in this directory, within a folder named according to the analysis batch
+output_dir: /home/tthurman/projects/UM-CoV-Seq/pipeline_testing/
+
+# Reference genome
+ref_genome: /home/core_projects/08_covid/UM-CoV-Seq/SARS-CoV-2-refseq/GCF_009858895.2_ASM985889v3_genomic.fna
+
+# Genome features file
+ref_gff: /home/core_projects/08_covid/UM-CoV-Seq/SARS-CoV-2-refseq/GCF_009858895.2_ASM985889v3_genomic.gff
+
+#######################
+## Optional settings ##
+#######################
+
+# Samples to exclude
+# Optionally, you can list sample IDs 
+# that are found in the raw data folder 
+# but which you'd like to exclude from analysis.
+# If so, list them in the format:
+# ["sample-ID1", "sample-ID2"]
+# Otherwise, leave as an empty Python list, []
+exclude_samples: []
+
+
