@@ -11,12 +11,19 @@ start_time = datetime.now()
 ##   GLOBALS   ##
 ################# 
 
+# Main config settings
+ANALYSIS = config["analysis"]
 INPUT_DIR = config["input_dir"]
 SEQUENCER = config["sequencer"]
 OUTPUT_DIR = config["output_dir"]
-ANALYSIS = config["analysis"]
 REF = config["ref_genome"]
 GFF = config["ref_gff"]
+
+# optional config settings
+samples_to_remove = config["exclude_samples"]
+trim_threads = config["trimming_threads"]
+map_threads = config["mapping_threads"]
+qualimap_threads = config["qualimap_threads"]
 
 ###############
 ##   SETUP   ##
@@ -51,7 +58,6 @@ samples.sort()
 samples = samples[1:8]
 
 # Optional sample removal
-samples_to_remove = config["exclude_samples"]
 if (len(samples_to_remove) >= 1):
     for sample in samples_to_remove:
         samples.remove(sample)
@@ -186,6 +192,7 @@ onsuccess:
 rule all:
     input:
         bd("results/multiqc/multiqc_report_trimming.html"), # QC report on trimming
+        bd("results/multiqc/multiqc_report_raw_bams.html")
         #bd(ANALYSIS + "-summary.csv"), # Final summary of the rest of the results
         #bd("gisaid/gisaid.fa") # The fasta file to upload to gisaid with UMGC samples IDs instead of barcodes
 
@@ -198,8 +205,6 @@ rule concat_fastas_across_lanes:
     output:
         R1_out = temp(bd("processed_reads/reads_lane_concat/{sample}_R1.fastq.gz")),
         R2_out = temp(bd("processed_reads/reads_lane_concat/{sample}_R2.fastq.gz"))
-    resources:
-        cpus = 1
     shell:
         """
         cat {input.R1_files} > {output.R1_out}
@@ -231,8 +236,7 @@ rule trim_and_merge_raw_reads:
         trim_r2_nopair= bd("processed_reads/trimmed/{sample}.nopair.R2.fq.gz"),
         rep_html= bd("logs/fastp/{sample}_trim_fastp.html"),
         rep_json= bd("logs/fastp/{sample}_trim_fastp.json")
-    resources:
-        cpus = 1
+    threads: trim_threads
     log:
         bd("logs/fastp/{sample}_trim_log.txt")
     shell:
@@ -242,7 +246,7 @@ rule trim_and_merge_raw_reads:
 
 
 # The snakemake linter prefers that, for rules like this
-# where we base directories or basenames in as parameters,
+# where we pass base directories or basenames in as parameters,
 # that they be generated through lambda functions from the inputs and/or outputs,
 # Insted of hard coding.
 # E.g., for this rule here, would use:
@@ -282,9 +286,6 @@ rule index_ref:
         """
         bwa index {input} > {log} 2>&1
         """
-# GWCT- multiext isn't working anymore??
-# TJT- not sure if this is a version thing? Seems to work fine for me, 
-# on version 6.4.1 and 6.6.0
 
 ## map_merged_reads: map trimmed, merged reads to reference
 #   BWA mem algorithm. Settings:
@@ -306,12 +307,11 @@ rule map_merged_reads:
         read_group=make_RG
     log:
         bd("logs/mapping/{sample}_merged.log")
-    resources:
-        cpus=2
+    threads: map_threads
     shell:
         """
         # Run bwa mem, pipe to samtools view to convert to bam, pipe to samtools sort
-        bwa mem -M -t $SLURM_CPUS_PER_TASK -R '{params.read_group}' {input.genome} {input.reads} 2> {log} | samtools view -b - 2>> {log} | samtools sort - -o {output} 2>> {log}
+        bwa mem -M -t {threads} -R '{params.read_group}' {input.genome} {input.reads} 2> {log} | samtools view -b - 2>> {log} | samtools sort - -o {output} 2>> {log}
         """
 
 # # map_unmerged_pairs: map trimmed, not merged, paired reads to reference
@@ -335,12 +335,11 @@ rule map_unmerged_pairs:
         read_group=make_RG
     log:
         bd("logs/mapping/{sample}_nomerge_paired.log")
-    resources:
-        cpus=2
+    threads: map_threads
     shell:
         """
         # Run bwa mem, pipe to samtools view to convert to bam, pipe to samtools sort 
-        bwa mem -M -t $SLURM_CPUS_PER_TASK -R '{params.read_group}' {input.genome} {input.reads_forward} {input.reads_reverse} 2> {log} | samtools view -b - 2>> {log} | samtools sort - -o {output} 2>> {log}
+        bwa mem -M -t {threads} -R '{params.read_group}' {input.genome} {input.reads_forward} {input.reads_reverse} 2> {log} | samtools view -b - 2>> {log} | samtools sort - -o {output} 2>> {log}
         """
 
 ## map_unmerged_unpaired: map trimmed, unmerged, unpaired reads to reference
@@ -366,16 +365,15 @@ rule map_unmerged_unpaired:
     log:
         forward=bd("logs/mapping/{sample}_nopair_R1.log"),
         rev=bd("logs/mapping/{sample}_nopair_R2.log")
-    resources:
-        cpus=2
+    threads: map_threads
     shell:
         """
         # Run bwa mem, pipe to samtools view to convert to bam, save as a tmp.bam
         # Read 1
-        bwa mem -M -t $SLURM_CPUS_PER_TASK -R '{params.read_group}' {input.genome} {input.reads_forward} 2> {log.forward} | samtools view -b - 2>> {log.forward} | samtools sort - -o {output.mapped_forward} 2>> {log.forward}
+        bwa mem -M -t {threads} -R '{params.read_group}' {input.genome} {input.reads_forward} 2> {log.forward} | samtools view -b - 2>> {log.forward} | samtools sort - -o {output.mapped_forward} 2>> {log.forward}
 
         # Read 2
-        bwa mem -M -t $SLURM_CPUS_PER_TASK -R '{params.read_group}' {input.genome} {input.reads_reverse} 2> {log.rev} | samtools view -b - 2>> {log.rev} | samtools sort - -o {output.mapped_reverse} 2>> {log.rev}
+        bwa mem -M -t {threads} -R '{params.read_group}' {input.genome} {input.reads_reverse} 2> {log.rev} | samtools view -b - 2>> {log.rev} | samtools sort - -o {output.mapped_reverse} 2>> {log.rev}
         """
 
 ## merge_bams_by_sample : merge bam files by sample and run
@@ -391,13 +389,12 @@ rule merge_sample_bams:
         nopair_rev=bd("processed_reads/mapped/{sample}.nopair.R2.sorted.bam")
     log:
         bd("logs/merge_bams/{sample}_merge.log")
-    resources:
-        cpus=4
+    threads: map_threads
     output:
         bd("processed_reads/per_sample_bams/{sample}.sorted.bam")
     shell:
         """
-        samtools merge -c -t {resources.cpus} {output} {input.merged} {input.unmerged_pair} {input.nopair_fwd} {input.nopair_rev} 2> {log}
+        samtools merge -c -t {threads} {output} {input.merged} {input.unmerged_pair} {input.nopair_fwd} {input.nopair_rev} 2> {log}
         """
 
 ## index_raw_bams: index bams
@@ -423,13 +420,12 @@ rule qualimap_raw_bam:
         bd("processed_reads/QC/qualimap/{sample}/qualimapReport.html")
     params:
         out_dir=bd("processed_reads/QC/qualimap/{sample}")
-    resources:
-        cpus=8
+    threads: qualimap_threads
     log:
         bd("logs/qualimap/{sample}.log")
     shell:
         """
-        qualimap bamqc -bam {input.bam} -nt $SLURM_CPUS_PER_TASK -outdir {params.out_dir} -outformat html --java-mem-size=4G > {log} 2>&1
+        qualimap bamqc -bam {input.bam} -nt {threads} -outdir {params.out_dir} -outformat html --java-mem-size=4G > {log} 2>&1
         """
 
 ## multiqc_raw_bam_report: collate qualimap reports on raw bams

@@ -41,4 +41,11 @@ ref_gff: /home/core_projects/08_covid/UM-CoV-Seq/SARS-CoV-2-refseq/GCF_009858895
 # Otherwise, leave as an empty Python list, []
 exclude_samples: []
 
+# Number of threads to use for:
+# trimming steps
+trimming_threads: 1
+# Mapping steps
+mapping_threads: 4
+# Qualimap
+qualimap_threads: 2
 
