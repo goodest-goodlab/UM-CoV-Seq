@@ -18,6 +18,7 @@ SEQUENCER = config["sequencer"]
 OUTPUT_DIR = config["output_dir"]
 REF = config["ref_genome"]
 GFF = config["ref_gff"]
+NC_DIR = config["nextclade_resources"]
 
 # optional config settings
 samples_to_remove = config["exclude_samples"]
@@ -676,10 +677,11 @@ rule nextclade_assign_clade:
     input:
         ivar_consensus = bd("results/ivar/all_samples_consensus.fasta"),
         gatk_consensus = bd("results/gatk/all_samples_consensus.fasta"),
-        tree = "nextclade-resources/tree.json",
-        ref = "nextclade-resources/reference.fasta",
-        qc_config = "nextclade-resources/qc.json",
-        gff = "nextclade-resources/genemap.gff"
+        tree = os.path.join(NC_DIR, "tree.json"),
+        ref = os.path.join(NC_DIR, "reference.fasta"),
+        qc_config = os.path.join(NC_DIR, "qc.json"),
+        gff = os.path.join(NC_DIR, "genemap.gff"),
+        virus_prop = os.path.join(NC_DIR, "virus_properties.json")
     output:
         ivar_report = bd("results/ivar-nextclade/nextclade_report.tsv"),
         gatk_report = bd("results/gatk-nextclade/nextclade_report.tsv")
@@ -691,9 +693,9 @@ rule nextclade_assign_clade:
         gatk_base_dir = bd("results/gatk-nextclade/"),
     shell:
         """
-        ./nextclade-1.0.0-alpha.9 -i {input.ivar_consensus} --input-root-seq {input.ref} -a {input.tree} -q {input.qc_config} -g {input.gff} -d {params.ivar_base_dir} --output-tsv {output.ivar_report} > {log.ivar_log} 2>&1
+        nextclade -i {input.ivar_consensus} --input-root-seq {input.ref} -a {input.tree} -q {input.qc_config} -g {input.gff} --input-virus-properties {input.virus_prop} -d {params.ivar_base_dir} --output-tsv {output.ivar_report} > {log.ivar_log} 2>&1
 
-        ./nextclade-1.0.0-alpha.9 -i {input.gatk_consensus} --input-root-seq {input.ref} -a {input.tree} -q {input.qc_config} -g {input.gff} -d {params.gatk_base_dir} --output-tsv {output.gatk_report} > {log.gatk_log} 2>&1
+        nextclade -i {input.gatk_consensus} --input-root-seq {input.ref} -a {input.tree} -q {input.qc_config} -g {input.gff} --input-virus-properties {input.virus_prop} -d {params.gatk_base_dir} --output-tsv {output.gatk_report} > {log.gatk_log} 2>&1
         """
 
 ## compile_results: Combine all summary tables and generate main table and GISAID table.

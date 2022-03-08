@@ -28,6 +28,9 @@ ref_genome: /home/core_projects/08_covid/UM-CoV-Seq/SARS-CoV-2-refseq/GCF_009858
 # Genome features file
 ref_gff: /home/core_projects/08_covid/UM-CoV-Seq/SARS-CoV-2-refseq/GCF_009858895.2_ASM985889v3_genomic.gff
 
+# Nextclade resources folder
+nextclade_resources: /home/core_projects/08_covid/UM-CoV-Seq/nextclade-resources/sars-cov-2_20220217
+
 #######################
 ## Optional settings ##
 #######################
