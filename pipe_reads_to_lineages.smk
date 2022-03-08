@@ -11,19 +11,11 @@ start_time = datetime.now()
 ##   GLOBALS   ##
 ################# 
 
-# Mostly pulled from config file
 INPUT_DIR = config["input_dir"]
-
 SEQUENCER = config["sequencer"]
-
 OUTPUT_DIR = config["output_dir"]
-
 ANALYSIS = config["analysis"]
-
-# List the reference genome you want to map to:
 REF = config["ref_genome"]
-
-# List the GFF file you want to use:
 GFF = config["ref_gff"]
 
 ###############
@@ -31,6 +23,7 @@ GFF = config["ref_gff"]
 ############### 
 
 # Check that the input folder exists
+# Error if not
 if os.path.isdir(INPUT_DIR) == False:
     raise OSError("\nInput directory " + INPUT_DIR + " not found\n")
 
@@ -42,7 +35,7 @@ samples = []
 for root, dirs, files in os.walk(INPUT_DIR):
     for name in files:
         if re.search("_S\d+_L\d+_R[12]_001.fastq.gz$", name):
-            samples.append(re.sub("_S\d+_L\d+_R[12]_001.fastq.gz$", "", name))
+            samples.append(re.sub("_S\d+_L\d+_R\d+_001.fastq.gz$", "", name))
             fastq_fullpath.append(os.path.join(root, name))
 
 if len(fastq_fullpath) < 1:
@@ -57,18 +50,16 @@ samples.sort()
 # TODO?: Formalize testing mechanism in config file
 samples = samples[1:8]
 
-
 # Optional sample removal
 samples_to_remove = config["exclude_samples"]
 if (len(samples_to_remove) >= 1):
     for sample in samples_to_remove:
         samples.remove(sample)
 
-
 # Get filename for the BWA genome index
 index_path= REF + ".amb"
 
-# Get expected number of lane files for
+# Get expected number of lane files
 # based on the sequencer type
 def files_per_sequencer(sequencer):
     if (sequencer == "MiSeq"):
@@ -86,40 +77,53 @@ expected_files = files_per_sequencer(SEQUENCER)
 ## HELPER FUNCTIONS ##
 ######################
 
-# These new functions find all fastas for a given sample
-# They will be used in a new first step, to compile across 
-# lanes before the fastas go into the trimming step
-# RAN INTO AN ISSUE: sample names that matched the _SBARCODE numbers in the file
-# made the regex search at the beginning
-# Another new issue I'm running into:
-# partial matches of IDs agains tother IDs. 
-# Just added a leading underscore to the second half of the search string, so that the
-# sample ID is fully separated from the rest of the filename
-# and no partial mathcing is allowed. 
+# Functions for finding the fastq read files for a given sample
+# First, a single function that finds the R1 and R2 files for a given sample
+# and performs some checks to make sure they are properly paired
+# and there are the correct numbers
+def find_read_files(wildcards):
+    # Create search strings to match R1 and R2 files with standard Illumina names
+    search_string_R1 = "^" + str({wildcards.sample}).strip("{'}") + "_.*_R1_.*\.fastq\.gz"
+    search_string_R2 = "^" + str({wildcards.sample}).strip("{'}") + "_.*_R2_.*\.fastq\.gz"
+    # Find the R1 and R2 files
+    result_R1 = [f for f in fastq_fullpath if re.search(search_string_R1, os.path.basename(f))]
+    result_R2 = [f for f in fastq_fullpath if re.search(search_string_R2, os.path.basename(f))]
+    # Sort them
+    result_R1.sort()
+    result_R2.sort()
+    
+    # Check that R1 and R2 have an equal number of files
+    # Give error if not (otherwise there will be issues with read pairing)
+    if len(result_R1) != len(result_R2):
+        raise OSError("\nUnequal number of R1 and R2 files found for sample: " + str({wildcards.sample}) + "\nR1 files: " + str(len(result_R1)) + "\nR2 files: " + str(len(result_R2)) + "\n")
+    
+    # Check that the the filenames for R1 and R2 match up properly
+    # Throw error if not (out-of-order files will cause issues with read pairing)
+    R1_check = [x.replace("_R1_", "") for x in result_R1]
+    R2_check = [x.replace("_R2_", "") for x in result_R2]
+    
+    if R1_check != R2_check:
+        print(result_R1)
+        print(result_R2)
+        raise OSError("\nFilenames of R1 and R2 reads for sample " + str({wildcards.sample}) + " do not match, this may cause issue with read pairing\nCheck above for the list of filenames causing this issue\n")
 
+    # Check for the expected number of files
+    # Print warning if not, but analysis can proceed
+    if len(result_R1) != expected_files:
+        print("Found " + str(len(result_R1)) + " sets of read files for sample " + str({wildcards.sample}).strip("{'}") + ", not " + str(expected_files))
+    
+    # Return lists of R1 and R2 files
+    return [result_R1, result_R2]
 
-# TODO: add a check that the number of read files is equal for a given sample,
-# and that their names match
+# Then, two simple functions for use as input
+# Which just return the R1 and R2 files, respectively
 def find_R1_files(wildcards):
-    search_string = "^" + str({wildcards.sample}).strip("{'}") + "_.*_R1_.*\.fastq\.gz"
-    result = [f for f in fastq_fullpath if re.search(search_string, os.path.basename(f))]
-    result.sort()
-    if len(result) != expected_files:
-        #print(result)
-        print("Found " + str(len(result)) + " R1 files for sample " + str({wildcards.sample}).strip("{'}") + ", not " + str(expected_files))
-    return result
-
+    R1_files = find_read_files(wildcards)[0]
+    return R1_files
 def find_R2_files(wildcards):
-    search_string = "^" + str({wildcards.sample}).strip("{'}") + "_.*_R2_.*\.fastq\.gz"
-    result = [f for f in fastq_fullpath if re.search(search_string, os.path.basename(f))]
-    result.sort()
-    if len(result) != expected_files:
-        #print(result)
-        print("Found " + str(len(result)) + " R2 files for sample " + str({wildcards.sample}).strip("{'}") + ", not " + str(expected_files))
-    return result
+    R2_files = find_read_files(wildcards)[1]
+    return R2_files
 
-# TODO: add a check that the number of read files is equal for a given sample,
-# and that their names match
 
 # A function to create a readgroup for BWA from the sample, lane, and run info
 def make_RG(wildcards):
@@ -154,6 +158,8 @@ localrules: all
 # Onstart and onsuccess, make a log files and copy the snakefile that was used
 # into the results directory for posterity
 #  TODO: add logging of all config file stuff??
+# Add avoid over-writing, so that a pipeline can be run multiple times??
+# Add in number of samples analyzed
 pipeline_log_file = bd("pipeline_log.tsv")
 onstart:
     os.makedirs(os.path.dirname(pipeline_log_file), exist_ok=True)
