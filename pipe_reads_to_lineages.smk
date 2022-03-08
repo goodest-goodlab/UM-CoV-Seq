@@ -25,6 +25,7 @@ samples_to_remove = config["exclude_samples"]
 trim_threads = config["trimming_threads"]
 map_threads = config["mapping_threads"]
 qualimap_threads = config["qualimap_threads"]
+mask_prob = config["mask_problematic_sites"]
 
 ###############
 ##   SETUP   ##
@@ -83,6 +84,11 @@ expected_files = files_per_sequencer(SEQUENCER)
 ######################
 ## HELPER FUNCTIONS ##
 ######################
+
+# A short function to add the output directory in front 
+# of filepaths, for ease of listing filenames below
+def bd(filepath):
+    return os.path.normpath(os.path.join(OUTPUT_DIR, ANALYSIS, filepath))
 
 # Functions for finding the fastq read files for a given sample
 # First, a single function that finds the R1 and R2 files for a given sample
@@ -151,10 +157,19 @@ def make_RG(wildcards):
     rg_out = "@RG\\tID:" + sample_ID + sample_num + "\\tLB:" + sample_ID + "\\tPL:ILLUMINA" + "\\tSM:" + sample_ID
     return rg_out
 
-# A short function to add the output directory in front 
-# of filepaths, for ease of listing filenames below
-def bd(filepath):
-    return os.path.normpath(os.path.join(OUTPUT_DIR, ANALYSIS, filepath))
+
+def ivar_cons_input_files(wildcards):
+    if mask_prob == True:
+        inputs = {"ivar_pileup": bd("results/pileup_masked/" + str({wildcards.sample}).strip("{'}") + ".masked.pileup"),
+                  "sample": bd("processed_reads/per_sample_bams/" + str({wildcards.sample}).strip("{'}") + ".sorted.bam"),
+                  "ref": REF,
+                  "gff": GFF}
+    else:       
+        inputs = {"ivar_pileup": bd("results/pileup/" + str({wildcards.sample}).strip("{'}") + ".pileup"),
+                  "sample": bd("processed_reads/per_sample_bams/" + str({wildcards.sample}).strip("{'}") + ".sorted.bam"),
+                  "ref": REF,
+                  "gff": GFF}
+    return inputs
 
 
 ####################
@@ -193,7 +208,8 @@ onsuccess:
 rule all:
     input:
         bd("results/multiqc/multiqc_report_trimming.html"), # QC report on trimming
-        bd("results/multiqc/multiqc_report_raw_bams.html")
+        bd("results/multiqc/multiqc_report_raw_bams.html"),
+        expand(bd("results/ivar/{sample}.fa"), sample = samples)
         #bd(ANALYSIS + "-summary.csv"), # Final summary of the rest of the results
         #bd("gisaid/gisaid.fa") # The fasta file to upload to gisaid with UMGC samples IDs instead of barcodes
 
@@ -461,34 +477,26 @@ rule pileup:
         sample = bd("processed_reads/per_sample_bams/{sample}.sorted.bam"),
         ref=REF
     output:
-        var_pileup = bd("results/pileup/{sample}-var.pileup"),
-        cons_pileup = bd("results/pileup/{sample}-cons.pileup")
+        ivar_pileup = bd("results/pileup/{sample}.pileup")
     log:
-        var=bd("logs/pileup/{sample}-var.log"),
-        cons=bd("logs/pileup/{sample}-cons.log")
+        bd("logs/pileup/{sample}.log")
     shell:
         """
-        samtools mpileup -aa -A -d 0 -B -Q 0 --reference {input.ref} {input.sample} > {output.var_pileup} 2> {log.var}
-
-        samtools mpileup -aa -A -d 0 -B -Q 0 --reference {input.ref} {input.sample} > {output.cons_pileup} 2> {log.cons}
+        samtools mpileup -aa -A -d 0 -B -Q 0 --reference {input.ref} {input.sample} > {output.ivar_pileup} 2> {log}
         """
 
 ## mask_pileup: Mask problematic sites from the pileups by converting all mapped bases at those
 # positions to the reference base, preventing variants from being called.
 rule mask_pileup:
     input:
-        var_pileup = bd("results/pileup/{sample}-var.pileup"),
-        cons_pileup = bd("results/pileup/{sample}-cons.pileup")       
+        ivar_pileup = bd("results/pileup/{sample}.pileup")    
     output:
-        masked_var_pileup = bd("results/pileup/{sample}-var.masked.pileup"),
-        masked_cons_pileup = bd("results/pileup/{sample}-cons.masked.pileup")
+        masked_ivar_pileup = bd("results/pileup_masked/{sample}.masked.pileup")
     log:
-        var=bd("logs/mask_pileup/{sample}-var.log"),
-        cons=bd("logs/mask_pileup/{sample}-cons.log")
+        bd("logs/mask_pileup/{sample}.log")
     shell:
         """
-        python lib/mask_pileup.py {input.var_pileup} {output.masked_var_pileup} > {log.var} 2>&1
-        python lib/mask_pileup.py {input.cons_pileup} {output.masked_cons_pileup} > {log.cons} 2>&1
+        python lib/mask_pileup.py {input.ivar_pileup} {output.masked_ivar_pileup} > {log} 2>&1
         """
 
 ## ivar_raw_bams: Call variants and make consensus seqs for the raw bams
@@ -504,11 +512,7 @@ rule mask_pileup:
 # -t 0.5 50% of reads needed for calling consensus base
 rule ivar_variant_and_consensus:
     input:
-        masked_var_pileup = bd("results/pileup/{sample}-var.masked.pileup"),
-        masked_cons_pileup = bd("results/pileup/{sample}-cons.masked.pileup"),
-        sample = bd("processed_reads/per_sample_bams/{sample}.sorted.bam"),
-        ref=REF,
-        gff=GFF
+        unpack(ivar_cons_input_files)
     output:
         fa=bd("results/ivar/{sample}.fa"),
         qual=bd("results/ivar/{sample}.qual.txt"),
@@ -521,10 +525,10 @@ rule ivar_variant_and_consensus:
     shell:
         """
         # Call Variants
-        cat {input.masked_var_pileup} | ivar variants -p {params.basename} -q 20 -t 0.5 -m 10 -r {input.ref} -g {input.gff} > {log.var} 2>&1
+        cat {input.ivar_pileup} | ivar variants -p {params.basename} -q 20 -t 0.5 -m 10 -r {input.ref} -g {input.gff} > {log.var} 2>&1
 
         # Make Consensus sequence
-        cat {input.masked_cons_pileup} | ivar consensus -p {params.basename} -q 20 -t 0.5 -m 10 > {log.cons} 2>&1
+        cat {input.ivar_pileup} | ivar consensus -p {params.basename} -q 20 -t 0.5 -m 10 > {log.cons} 2>&1
         """
 
 ## gatk_haplotypecaller: Call variants with GATK. Emit all sites (-ERC GVCF) for genotyping
