@@ -26,6 +26,7 @@ trim_threads = config["trimming_threads"]
 map_threads = config["mapping_threads"]
 qualimap_threads = config["qualimap_threads"]
 mask_prob = str(config["mask_problematic_sites"]).upper()
+test_pipe = str(config["test_pipeline"])
 
 ###############
 ##   SETUP   ##
@@ -54,10 +55,11 @@ if len(fastq_fullpath) < 1:
 samples = list(set(samples))
 samples.sort()
 
-# Can comment/uncomment the below line for testing,
-# to run pipeline on just the first two samples. 
-# TODO?: Formalize testing mechanism in config file
-samples = samples[1:8]
+
+# Optional way to test on just the first few samples in the list
+if (test_pipe.upper() != "FALSE"):
+    samples = samples[1:int(test_pipe)+1]
+
 
 # Optional sample removal
 if (len(samples_to_remove) >= 1):

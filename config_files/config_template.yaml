@@ -64,3 +64,13 @@ qualimap_threads: 4
 # If True/true/TRUE, will mask. 
 # If False/false/FALSE, will not
 mask_problematic_sites: False
+
+# Test pipeline
+# May be useful to test the pipeline on a small number of samples,
+# to make sure installation has gone smoothly
+# Specify X number of samples below, and the pipeline will 
+# run for only the first X samples.
+# Otherwise, set to False
+# NB- If the pipeline completes with test samples, abd then you turn testing off
+# There won't be anything to be done, since the pipeline had made all the target files
+test_pipeline: False
