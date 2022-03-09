@@ -46,15 +46,15 @@ exclude_samples: []
 
 # Number of threads to use for:
 # trimming steps
-trimming_threads: 1
+trimming_threads: 4
 # Mapping steps
 mapping_threads: 4
 # Qualimap
-qualimap_threads: 2
+qualimap_threads: 4
 
 # Mask problematic sites?
 # Should sites marked as problematic 
 # be reverted to the reference?
-# If True, will mask. Anything else, will not
-# In for submitting to databases, better not to mask
+# If True/true/TRUE, will mask. 
+# If False/false/FALSE, will not
 mask_problematic_sites: False

@@ -82,7 +82,12 @@ with open(output_file, "w") as outfile:
         # For sequences, make sure the sum of all base types is the sequence length
         # Don't do this for ivar because I've noticed that they can have ambiguous bases
 
-        perc_n = n / seqlen;
+        # Edge case: a sequencing failure that leads to a 0-length conesnsus
+        # Might want to deal with this further upstream, but for now this fixes it
+        if seqlen == 0:
+            perc_n = "N/A";
+        else:
+            perc_n = n / seqlen;
         # Calculate the percentage of Ns
 
         if n > 5000:

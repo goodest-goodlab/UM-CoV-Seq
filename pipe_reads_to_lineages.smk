@@ -212,10 +212,7 @@ onsuccess:
 rule all:
     input:
         bd("results/multiqc/multiqc_report_trimming.html"), # QC report on trimming
-        bd("results/multiqc/multiqc_report_raw_bams.html"),
-        expand(bd("results/ivar/{sample}.fa"), sample = samples),
-        expand(bd("results/gatk/{sample}.fa"), sample = samples)
-        #bd(ANALYSIS + "-summary.csv"), # Final summary of the rest of the results
+        bd(ANALYSIS + "-summary.csv") # Final summary of the rest of the results
         #bd("gisaid/gisaid.fa") # The fasta file to upload to gisaid with UMGC samples IDs instead of barcodes
 
 
@@ -706,32 +703,25 @@ rule nextclade_assign_clade:
         nextclade -i {input.gatk_consensus} --input-root-seq {input.ref} -a {input.tree} -q {input.qc_config} -g {input.gff} --input-virus-properties {input.virus_prop} -d {params.gatk_base_dir} --output-tsv {output.gatk_report} > {log.gatk_log} 2>&1
         """
 
-## compile_results: Combine all summary tables and generate main table and GISAID table.
-#rule compile_results:
-#    input:
-#        sample_file = SAMPLE_FILE,
-#        multiqc = bd("results/multiqc/multiqc_report_raw_bams_data/multiqc_general_stats.txt"),
-#        vcf = expand(bd("results/gatk/{sample}.masked.fvcf.gz"), sample = samples),
-#        variants = expand(bd("results/ivar/{sample}.tsv"), sample = samples),
-#        ivar_stats = bd("results/ivar/all_samples_consensus_stats.csv"),
-#        gatk_stats = bd("results/gatk/all_samples_consensus_stats.csv"),
-#        ivar_pangolin = bd("results/ivar-pangolin/lineage_report.csv"),
-#        gatk_pangolin = bd("results/gatk-pangolin/lineage_report.csv"),
-#        ivar_nextclade = bd("results/ivar-nextclade/nextclade_report.tsv"),
-#        gatk_nextclade = bd("results/gatk-nextclade/nextclade_report.tsv")
-#    output:
-#        bd(ANALYSIS + "-summary.csv")
-#    params:
-#        batch = BATCH,
-#        batch_dir = BASE_BATCH_DIR + "/",
-#        ivar_dir = bd("results/ivar/"),
-#        gatk_dir = bd("results/gatk/")
-#    log:
-#        bd("logs/compile_results.log")
-#    shell:
-#        """
-#        Rscript lib/compile_results.R {input.sample_file} {params.batch} {params.batch_dir} {input.multiqc} {params.ivar_dir} {params.gatk_dir} {input.ivar_stats} {input.gatk_stats} {input.ivar_pangolin} {input.gatk_pangolin} {input.ivar_nextclade} {input.gatk_nextclade} > {log} 2>&1
-#        """
+## compile_results: Combine results and generate main summary table.
+rule compile_results:
+    input:
+        ivar_stats = bd("results/ivar/all_samples_consensus_stats.csv"),
+        gatk_stats = bd("results/gatk/all_samples_consensus_stats.csv"),
+        ivar_pangolin = bd("results/ivar-pangolin/lineage_report.csv"),
+        gatk_pangolin = bd("results/gatk-pangolin/lineage_report.csv"),
+        ivar_nextclade = bd("results/ivar-nextclade/nextclade_report.tsv"),
+        gatk_nextclade = bd("results/gatk-nextclade/nextclade_report.tsv")
+    output:
+        bd(ANALYSIS + "-summary.csv")
+    params:
+        mask_problematic = mask_prob
+    log:
+        bd("logs/compile_results.log")
+    shell:
+        """
+        Rscript lib/compile_results.R {output} {params.mask_problematic} > {log} 2>&1
+        """
 
 ## gisaid_seqs: Combine sequences with GISAID headers
 #rule gisaid_seqs:
