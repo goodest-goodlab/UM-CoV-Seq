@@ -706,6 +706,7 @@ rule nextclade_assign_clade:
 ## compile_results: Combine results and generate main summary table.
 rule compile_results:
     input:
+        multiqc_report = bd("results/multiqc/multiqc_report_raw_bams_data/multiqc_general_stats.txt"),
         ivar_stats = bd("results/ivar/all_samples_consensus_stats.csv"),
         gatk_stats = bd("results/gatk/all_samples_consensus_stats.csv"),
         ivar_pangolin = bd("results/ivar-pangolin/lineage_report.csv"),

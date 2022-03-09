@@ -1,24 +1,66 @@
-###
-# Lines to edit before running
-###
+#####################################
+## Required configuration settings ##
+#####################################
 
-# Name of batch (should match MiSeq run ID in sample file)
-batch: batch_name
+# Analysis ID
+# Give a name/ID that is unique to a given analysis
+# This will be the name of the folder into which all files are placed
+# So don't make it too long or unwieldy.
+analysis_ID: EX-SeqBatch01
 
-# The sample file with barcodse, UMGC IDs, data source, and MiSeq run ID.
-sample_file: /mnt/beegfs/gt156213e/UM-CoV-Seq/data/Master-ID-List_For-UMGC-WGS-Samples_20210713_DX.csv
+# Input directory
+# Folder where where reads are stored. 
+input_dir: /path/to/directory/with/fastq.gz_files/
 
-metadata_file: TBD
+# Sequencer type
+# This determines the number of input files the pipeline will look for
+# the pipeline will print a warning for samples
+# which do not have the appropriate number
+# Current options are: MiSeq, NextSeq
+sequencer: NextSeq
 
-###
-# Lines that probably don't need to be edited
-###
-
-# The directory containing subdirectories for all sequence batches. 
-base_data_folder: /mnt/beegfs/gt156213e/UM-CoV-Seq/data/
+# Output directory
+# Directory where you would like the ouput files 
+# for this analysis batch to be placed. 
+# The pipeline will create a folder, analysis_ID, within this output directory.
+output_dir: /path/to/output/directory/
 
 # Reference genome
-ref_genome: /mnt/beegfs/gt156213e/UM-CoV-Seq/SARS-CoV-2-refseq/GCF_009858895.2_ASM985889v3_genomic.fna
+# Give the path to the reference genome file 
+ref_genome: /path/to/reference_genome.fa
 
 # Genome features file
-ref_gff: /mnt/beegfs/gt156213e/UM-CoV-Seq/SARS-CoV-2-refseq/GCF_009858895.2_ASM985889v3_genomic.gff
+# Give the path to the GFF file to use
+ref_gff: /path/to/reference_annotation.gff
+
+# Nextclade resources folder
+# Give the path to the folder of nextclade resources
+nextclade_resources: /path/to/08_covid/nextclade-resources/
+
+#######################
+## Optional settings ##
+#######################
+
+# Samples to exclude
+# Optionally, you can list sample IDs 
+# that are found in the raw data folder 
+# but which you'd like to exclude from analysis.
+# If so, list them in the format:
+# ["sampleID1", "sampleID2"]
+# Otherwise, leave as an empty Python list, []
+exclude_samples: []
+
+# Number of threads to use for:
+# trimming steps
+trimming_threads: 4
+# Mapping steps
+mapping_threads: 4
+# Qualimap
+qualimap_threads: 4
+
+# Mask problematic sites?
+# Should sites marked as problematic 
+# be reverted to the reference?
+# If True/true/TRUE, will mask. 
+# If False/false/FALSE, will not
+mask_problematic_sites: False
