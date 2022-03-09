@@ -250,11 +250,11 @@ rule trim_and_merge_raw_reads:
         raw_r1=bd("processed_reads/reads_lane_concat/{sample}_R1.fastq.gz"),
         raw_r2=bd("processed_reads/reads_lane_concat/{sample}_R2.fastq.gz")
     output:
-        trim_merged= bd("processed_reads/trimmed/{sample}.merged.fq.gz"),
-        trim_r1_pair= bd("processed_reads/trimmed/{sample}.nomerge.pair.R1.fq.gz"),
-        trim_r2_pair= bd("processed_reads/trimmed/{sample}.nomerge.pair.R2.fq.gz"),
-        trim_r1_nopair= bd("processed_reads/trimmed/{sample}.nopair.R1.fq.gz"),
-        trim_r2_nopair= bd("processed_reads/trimmed/{sample}.nopair.R2.fq.gz"),
+        trim_merged= temp(bd("processed_reads/trimmed/{sample}.merged.fq.gz")),
+        trim_r1_pair= temp(bd("processed_reads/trimmed/{sample}.nomerge.pair.R1.fq.gz")),
+        trim_r2_pair= temp(bd("processed_reads/trimmed/{sample}.nomerge.pair.R2.fq.gz")),
+        trim_r1_nopair= temp(bd("processed_reads/trimmed/{sample}.nopair.R1.fq.gz")),
+        trim_r2_nopair= temp(bd("processed_reads/trimmed/{sample}.nopair.R2.fq.gz")),
         rep_html= bd("logs/fastp/{sample}_trim_fastp.html"),
         rep_json= bd("logs/fastp/{sample}_trim_fastp.json")
     threads: trim_threads
@@ -322,7 +322,7 @@ rule map_merged_reads:
         genome=REF,
         genome_index=index_path
     output:
-        bd("processed_reads/mapped/{sample}.merged.sorted.bam")
+        temp(bd("processed_reads/mapped/{sample}.merged.sorted.bam"))
     params:
         basename=bd("processed_reads/mapped/{sample}"),
         read_group=make_RG
@@ -350,7 +350,7 @@ rule map_unmerged_pairs:
         genome=REF,
         genome_index=index_path
     output:
-        bd("processed_reads/mapped/{sample}.nomerge.paired.sorted.bam")
+        temp(bd("processed_reads/mapped/{sample}.nomerge.paired.sorted.bam"))
     params:
         basename=bd("processed_reads/mapped/{sample}"),
         read_group=make_RG
@@ -378,8 +378,8 @@ rule map_unmerged_unpaired:
         genome=REF,
         genome_index=index_path
     output:
-        mapped_forward = bd("processed_reads/mapped/{sample}.nopair.R1.sorted.bam"),
-        mapped_reverse = bd("processed_reads/mapped/{sample}.nopair.R2.sorted.bam")
+        mapped_forward = temp(bd("processed_reads/mapped/{sample}.nopair.R1.sorted.bam")),
+        mapped_reverse = temp(bd("processed_reads/mapped/{sample}.nopair.R2.sorted.bam"))
     params:
         basename=bd("processed_reads/mapped/{sample}"),
         read_group=make_RG
@@ -481,7 +481,7 @@ rule pileup:
         sample = bd("processed_reads/per_sample_bams/{sample}.sorted.bam"),
         ref=REF
     output:
-        ivar_pileup = bd("results/pileup/{sample}.pileup")
+        ivar_pileup = temp(bd("results/pileup/{sample}.pileup"))
     log:
         bd("logs/pileup/{sample}.log")
     shell:
@@ -495,7 +495,7 @@ rule mask_pileup:
     input:
         ivar_pileup = bd("results/pileup/{sample}.pileup")    
     output:
-        masked_ivar_pileup = bd("results/pileup_masked/{sample}.masked.pileup")
+        masked_ivar_pileup = temp(bd("results/pileup_masked/{sample}.masked.pileup"))
     log:
         bd("logs/mask_pileup/{sample}.log")
     shell:
