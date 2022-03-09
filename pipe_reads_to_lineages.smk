@@ -25,7 +25,7 @@ samples_to_remove = config["exclude_samples"]
 trim_threads = config["trimming_threads"]
 map_threads = config["mapping_threads"]
 qualimap_threads = config["qualimap_threads"]
-mask_prob = config["mask_problematic_sites"]
+mask_prob = str(config["mask_problematic_sites"]).upper()
 
 ###############
 ##   SETUP   ##
@@ -80,6 +80,10 @@ def files_per_sequencer(sequencer):
 
 expected_files = files_per_sequencer(SEQUENCER)
 
+# Check the masking option,
+# make sure it is true or false
+if (mask_prob == "TRUE" or mask_prob == "FALSE") != True:
+    raise NameError("\nmask_problematic_sites option must be either true or false, not " + str(mask_prob) + "\n")
 
 ######################
 ## HELPER FUNCTIONS ##
@@ -159,7 +163,7 @@ def make_RG(wildcards):
 
 
 def ivar_cons_input_files(wildcards):
-    if mask_prob == True:
+    if mask_prob == "TRUE":
         inputs = {"ivar_pileup": bd("results/pileup_masked/" + str({wildcards.sample}).strip("{'}") + ".masked.pileup"),
                   "sample": bd("processed_reads/per_sample_bams/" + str({wildcards.sample}).strip("{'}") + ".sorted.bam"),
                   "ref": REF,
@@ -209,7 +213,8 @@ rule all:
     input:
         bd("results/multiqc/multiqc_report_trimming.html"), # QC report on trimming
         bd("results/multiqc/multiqc_report_raw_bams.html"),
-        expand(bd("results/ivar/{sample}.fa"), sample = samples)
+        expand(bd("results/ivar/{sample}.fa"), sample = samples),
+        expand(bd("results/gatk/{sample}.fa"), sample = samples)
         #bd(ANALYSIS + "-summary.csv"), # Final summary of the rest of the results
         #bd("gisaid/gisaid.fa") # The fasta file to upload to gisaid with UMGC samples IDs instead of barcodes
 
@@ -541,7 +546,7 @@ rule gatk_haplotypecaller:
     log:
         hc_log = bd("logs/gatk/{sample}_haplotypecaller.log")
     output:
-        gvcf = bd("results/gatk/{sample}.gvcf.gz")
+        gvcf = bd("results/gatk/gvcfs/{sample}.gvcf.gz")
     shell:
         """
         gatk HaplotypeCaller -R {input.ref} -I {input.sample} --sample-ploidy 1 -stand-call-conf 30 --native-pair-hmm-threads 4 -ERC GVCF -O {output.gvcf} > {log.hc_log} 2>&1
@@ -553,12 +558,12 @@ rule gatk_genotypegvcfs:
     input:
         sample = bd("processed_reads/per_sample_bams/{sample}.sorted.bam"),
         bai = bd("processed_reads/per_sample_bams/{sample}.sorted.bam.bai"),
-        gvcf = bd("results/gatk/{sample}.gvcf.gz"),
+        gvcf = bd("results/gatk/gvcfs/{sample}.gvcf.gz"),
         ref = REF
     log:
         gt_log = bd("logs/gatk/{sample}_genotypegvcfs.log")
     output:
-        vcf = bd("results/gatk/{sample}.vcf.gz")
+        vcf = bd("results/gatk/vcfs/raw/{sample}.vcf.gz")
     shell:
         """
         gatk GenotypeGVCFs -R {input.ref} -V {input.gvcf} -O {output.vcf} --sample-ploidy 1 --include-non-variant-sites > {log.gt_log} 2>&1
@@ -576,33 +581,35 @@ rule gatk_genotypegvcfs:
 # ALT="*": Filter variants where the alt is "*", which means it spans a deletion.
 rule filter_vcfs:
     input:
-        vcf = bd("results/gatk/{sample}.vcf.gz")
+        vcf = bd("results/gatk/vcfs/raw/{sample}.vcf.gz")
     log:
         gt_log = bd("logs/gatk/{sample}_bcftools_filter.log")
     output:
-        fvcf = bd("results/gatk/{sample}.fvcf.gz")
+        fvcf = bd("results/gatk/vcfs/filtered/{sample}.fvcf.gz")
     shell:
         """
         bcftools filter -m+ -e 'MQ < 30.0 || FORMAT/DP < 10 || FORMAT/DP > 1200 || FORMAT/GQ < 20 || FORMAT/AD[0:1] / FORMAT/DP < 0.5 || ALT="*"' -s FILTER --IndelGap 5 -Oz -o {output.fvcf} {input.vcf} > {log.gt_log} 2>&1
         """
-    
-## mask_vcfs: Mask/filter GATK variants at positions in the problematic sites VCF file.
+
+## mask_vcfs: Mask/filter GATK variants at positions without sufficient info for a genotype call, and optionally at problematic sites.
 rule mask_vcfs:
     input:
-        fvcf = bd("results/gatk/{sample}.fvcf.gz")
+        fvcf = bd("results/gatk/vcfs/filtered/{sample}.fvcf.gz")
     output:
-        mvcf = bd("results/gatk/{sample}.masked.fvcf.gz")
+        mvcf = bd("results/gatk/vcfs/filtered_and_masked/{sample}.masked.fvcf.gz")
     log:
         bd("logs/mask_vcf/{sample}.log")
+    params:
+        mask_problematic = mask_prob
     shell:
         """
-        python lib/mask_vcf.py {input.fvcf} {output.mvcf} > {log} 2>&1
+        python lib/mask_vcf.py {input.fvcf} {output.mvcf} {params.mask_problematic} > {log} 2>&1
         """
 
 ## bcftools_consensus: Generate the consensus sequences from the GATK variant calls.
 rule bcftools_consensus:
     input:
-        mvcf = bd("results/gatk/{sample}.masked.fvcf.gz"),
+        mvcf = bd("results/gatk/vcfs/filtered_and_masked/{sample}.masked.fvcf.gz"),
         ref = REF
     log:
         gt_log = bd("logs/gatk/{sample}_bcftools_consensus.log")
@@ -626,16 +633,13 @@ rule combine_raw_consensus:
     output:
         ivar_cons = bd("results/ivar/all_samples_consensus.fasta"),
         gatk_cons = bd("results/gatk/all_samples_consensus.fasta")
-    params:
-        ivar_base_dir = bd("results/ivar/"),
-        gatk_base_dir = bd("results/gatk/")
     log:
         ivar=bd("logs/combine_consensus/ivar_consensus.log"),
         gatk=bd("logs/combine_consensus/gatk_consensus.log")
     shell:
         """
-        cat {params.ivar_base_dir}/*.fa > {output.ivar_cons} 2> {log.ivar}
-        cat {params.gatk_base_dir}/*.fa > {output.gatk_cons} 2> {log.gatk}
+        cat {input.ivar_fa} > {output.ivar_cons} 2> {log.ivar}
+        cat {input.gatk_fa} > {output.gatk_cons} 2> {log.gatk}
         """
 
 ## consensus_stats: calculate number of Ns for each sample
