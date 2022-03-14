@@ -58,6 +58,16 @@ mapping_threads: 4
 # Qualimap
 qualimap_threads: 4
 
+# GATK Java memory options
+# depending on the sequencing depth used and
+# the default settings for java memory processes on your computer
+# you may need to increase the memory or other resources GATK can use. 
+# These can be passed in as Java options
+# Just type the whole --java-options command you'd like to use, e.g.:
+# gatk_java_opts: --java-options "-Xmx16g"
+# Or, just leave blank for default options. 
+gatk_java_opts:
+
 # Mask problematic sites?
 # Should sites marked as problematic 
 # be reverted to the reference?

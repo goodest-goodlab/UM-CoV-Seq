@@ -25,8 +25,14 @@ samples_to_remove = config["exclude_samples"]
 trim_threads = config["trimming_threads"]
 map_threads = config["mapping_threads"]
 qualimap_threads = config["qualimap_threads"]
+java_opt = config["gatk_java_opts"]
 mask_prob = str(config["mask_problematic_sites"]).upper()
 test_pipe = str(config["test_pipeline"])
+
+# If java opt is empty, make it an empty string
+if java_opt is None:
+    java_opt = ""
+
 
 ###############
 ##   SETUP   ##
@@ -546,9 +552,11 @@ rule gatk_haplotypecaller:
         hc_log = bd("logs/gatk/{sample}_haplotypecaller.log")
     output:
         gvcf = bd("results/gatk/gvcfs/{sample}.gvcf.gz")
+    params:
+        options=java_opt
     shell:
         """
-        gatk HaplotypeCaller -R {input.ref} -I {input.sample} --sample-ploidy 1 -stand-call-conf 30 --native-pair-hmm-threads 4 -ERC GVCF -O {output.gvcf} > {log.hc_log} 2>&1
+        gatk {params.options}  HaplotypeCaller -R {input.ref} -I {input.sample} --sample-ploidy 1 -stand-call-conf 30 --native-pair-hmm-threads 4 -ERC GVCF -O {output.gvcf} > {log.hc_log} 2>&1
         """
 
 ## gatk_genotypgvcfs: Genotype the GVCFs from the previous steps and emit all sites to 
@@ -563,9 +571,11 @@ rule gatk_genotypegvcfs:
         gt_log = bd("logs/gatk/{sample}_genotypegvcfs.log")
     output:
         vcf = bd("results/gatk/vcfs/raw/{sample}.vcf.gz")
+    params:
+        options=java_opt
     shell:
         """
-        gatk GenotypeGVCFs -R {input.ref} -V {input.gvcf} -O {output.vcf} --sample-ploidy 1 --include-non-variant-sites > {log.gt_log} 2>&1
+        gatk {params.options} GenotypeGVCFs -R {input.ref} -V {input.gvcf} -O {output.vcf} --sample-ploidy 1 --include-non-variant-sites > {log.gt_log} 2>&1
         """
 
 ## filter_vcfs: Filter variants with bcftools.
