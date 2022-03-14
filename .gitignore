@@ -41,3 +41,5 @@ phix/
 old/
 *test*
 
+# Project-specific config files
+config_files/config_rerun_*.yaml

@@ -1,3 +1,4 @@
+NEEDS TO BE UPDATED
 jobs: 45
 cluster: 
     mkdir -p results/{config[batch]}/logs/slurm_logs/{rule}/ &&

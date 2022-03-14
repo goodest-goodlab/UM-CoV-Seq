@@ -18,9 +18,10 @@ dependencies:
   - snakemake-minimal>=5.13
   - gofasta
   - usher
-  - pangolin
+  - pangolin=3.1.20
   - bcftools
   - gatk4
+  - nextclade
   - pip:
     - pandas
     - git+https://github.com/cov-lineages/pangoLEARN.git

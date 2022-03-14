@@ -50,7 +50,7 @@ And finally, activate the environment:
 
 ### Specifying input data
 
-Currently, `snakemake` is set up to work from a configuration file, stored in the `config_files` folder. You will need to create a new config file for each analysis batch. Config files are simple `.yaml` files that list parameters for the pipeline: which data to analyze, what reference genome to use, etc. Copy the provided template to make a new cofiguration file for your analysis. Most likely, you will only need to change the name of the batch of data you are analyzing. This batch name must match the MiSeq run ID in the sample file. 
+Currently, `snakemake` is set up to work from a configuration file, stored in the `config_files` folder. You will need to create a new config file for each analysis batch. Config files are simple `.yaml` files that list parameters for the pipeline: which data to analyze, what reference genome to use, etc. Copy the provided template to make a new cofiguration file for your analysis.
 
 ### snakemake and SLURM
 
@@ -101,17 +101,14 @@ Instead of putting it in the conda environment, We have also included the [NextC
 
 1. Automatically generate GISAID output table. 
 2. Decide on best practices for Pangolin versioning, and then implement. E.g., if we want to peg to a certain version, put that in the conda environment. Or, if we want to check for and update pangolin every time we reun pipeline, add in a rule or line of code to do that.
-3. Figure out basespace command line, create a way to automatically download new data (either as part of this pipeline, or another way). 
-4. Now that iVar variant calling and iVar consensus are working from the same mpileup command, tidy that up so there's only the one pileup. 
+3. Update default SLURM profile: change location of SLURM log files.
 
 # Ideas for the future
 
 1. Run FastQC, or some other QC, immediately on the raw data? May be useful for diagnosing issues, though a lot of what we'd get from FastQC we probably already have from the Illumina software with the MiSeq.
 2. More quality filtering during mapping? Could be more stringent in some spots. May be worth testing to see if it makes a difference.
-3. Make use of the conda tools within `snakemake`? In theory, could set things up so that this whole pipeline has only 2 user-managed dependencies (`snakemake` and `conda`/`mamba`). `snakemkae` would handle the rest of the installing through `conda` environments for each rule. 
+3. Make use of the conda tools within `snakemake`? In theory, could set things up so that this whole pipeline has only 2 user-managed dependencies (`snakemake` and `conda`/`mamba`). `snakemkae` would handle the rest of the installing through `conda` environments for each rule. Might also improve things for running Nextclade.
 4. Allow more flexibility in input file names? .fasta/.fa/.fastq/.fq, .gz or not? Right now, just works on files with `.fastq.gz` as their extension.
-5. Mark all intermediate files as temp in snakemake, to save disk space? Not that useful now, maybe once it is finalized?
-6. Improve Nextclade? Edit default for QC, use our own .gff (which didn't work initially), etc.
-7. Improve the readgroup function? pull the first line of the FASTA and parse it to get a little more info, instead of the pretty simple stuff I'm doing currently.
-8. Add a rule to plot the DAG?
-9. Add a rule to output a .yml file of the conda environment used? 
+5. Improve the readgroup function? pull the first line of the FASTA and parse it to get a little more info, instead of the pretty simple stuff I'm doing currently.
+6. Add a rule to plot the DAG?
+7. Add a rule to output a .yml file of the conda environment used? 
