@@ -12,7 +12,7 @@ start_time = datetime.now()
 ################# 
 
 # Main config settings
-ANALYSIS = config["analysis"]
+ANALYSIS = config["analysis_ID"]
 INPUT_DIR = config["input_dir"]
 SEQUENCER = config["sequencer"]
 OUTPUT_DIR = config["output_dir"]
@@ -72,14 +72,15 @@ if (len(samples_to_remove) >= 1):
     for sample in samples_to_remove:
         samples.remove(sample)
 
-# Get filename for the BWA genome index
-index_path= REF + ".amb"
+# Get filenames for the index 
+index_bwa= REF + ".amb"
+index_gatk = str(os.path.splitext(REF)[0]) + ".dict"
 
 # Get expected number of lane files
 # based on the sequencer type
 def files_per_sequencer(sequencer):
     if (sequencer == "MiSeq"):
-        return 2
+        return 1
     elif (sequencer == "NextSeq"):
         return 4
     else:
@@ -300,19 +301,21 @@ rule multiqc_trim_reports:
         multiqc -f {params.dir_in} -o {params.dir_out} -n multiqc_report_trimming.html > {log} 2>&1
         """
 
-## index_ref: index genome for BWA
+## index_for_bwa: index genome for BWA
 # Index the reference genome, if it isn't already
-rule index_ref:
+rule index_for_bwa:
     input:
         REF
     output:
         multiext(REF, ".amb", ".ann", ".bwt", ".pac", ".sa")
     log:
-        bd("logs/index_ref.log")  
+        bd("logs/index_ref_bwa.log")  
     shell:
         """
         bwa index {input} > {log} 2>&1
         """
+
+
 
 ## map_merged_reads: map trimmed, merged reads to reference
 #   BWA mem algorithm. Settings:
@@ -326,7 +329,7 @@ rule map_merged_reads:
     input:
         reads=bd("processed_reads/trimmed/{sample}.merged.fq.gz"),
         genome=REF,
-        genome_index=index_path
+        genome_index=index_bwa
     output:
         temp(bd("processed_reads/mapped/{sample}.merged.sorted.bam"))
     params:
@@ -354,7 +357,7 @@ rule map_unmerged_pairs:
         reads_forward=bd("processed_reads/trimmed/{sample}.nomerge.pair.R1.fq.gz"),
         reads_reverse=bd("processed_reads/trimmed/{sample}.nomerge.pair.R2.fq.gz"),
         genome=REF,
-        genome_index=index_path
+        genome_index=index_bwa
     output:
         temp(bd("processed_reads/mapped/{sample}.nomerge.paired.sorted.bam"))
     params:
@@ -382,7 +385,7 @@ rule map_unmerged_unpaired:
         reads_forward=bd("processed_reads/trimmed/{sample}.nopair.R1.fq.gz"),
         reads_reverse=bd("processed_reads/trimmed/{sample}.nopair.R2.fq.gz"),
         genome=REF,
-        genome_index=index_path
+        genome_index=index_bwa
     output:
         mapped_forward = temp(bd("processed_reads/mapped/{sample}.nopair.R1.sorted.bam")),
         mapped_reverse = temp(bd("processed_reads/mapped/{sample}.nopair.R2.sorted.bam"))
@@ -481,7 +484,6 @@ rule multiqc_raw_bam_report:
 # -d 0 no max depth limit
 # -B disable BAQ computation
 # -Q 0 No minimum base quality
-
 rule pileup:
     input:
         sample = bd("processed_reads/per_sample_bams/{sample}.sorted.bam"),
@@ -541,13 +543,29 @@ rule ivar_variant_and_consensus:
         cat {input.ivar_pileup} | ivar consensus -p {params.basename} -q 20 -t 0.5 -m 10 > {log.cons} 2>&1
         """
 
+## index_for_GATK: index genome for GATK
+# Index the reference genome, if it isn't already
+rule index_for_GATK:
+    input:
+        REF
+    output:
+        index_gatk
+    log:
+        bd("logs/index_ref_gatk.log")
+    shell:
+        """
+        gatk CreateSequenceDictionary -R {input} > {log} 2>&1
+        """
+
+
 ## gatk_haplotypecaller: Call variants with GATK. Emit all sites (-ERC GVCF) for genotyping
 # and masking low quality sites called as ./.
 rule gatk_haplotypecaller:
     input:
         sample = bd("processed_reads/per_sample_bams/{sample}.sorted.bam"),
         bai = bd("processed_reads/per_sample_bams/{sample}.sorted.bam.bai"),
-        ref = REF
+        ref = REF,
+        index = index_gatk
     log:
         hc_log = bd("logs/gatk/{sample}_haplotypecaller.log")
     output:
@@ -566,7 +584,8 @@ rule gatk_genotypegvcfs:
         sample = bd("processed_reads/per_sample_bams/{sample}.sorted.bam"),
         bai = bd("processed_reads/per_sample_bams/{sample}.sorted.bam.bai"),
         gvcf = bd("results/gatk/gvcfs/{sample}.gvcf.gz"),
-        ref = REF
+        ref = REF,
+        index = index_gatk
     log:
         gt_log = bd("logs/gatk/{sample}_genotypegvcfs.log")
     output:
