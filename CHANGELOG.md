@@ -1,6 +1,6 @@
-2022-03-14 Timothy Thurman <timothy.j.thurman@gmail.com>
+2022-03-15 Timothy Thurman <timothy.j.thurman@gmail.com>
 
-Some major changes to the pipeline to the pipeline, making it more flexible and less Montana-specific:
+Some major changes to the pipeline, making it more flexible and less Montana-specific:
 
     * New input and output folder specification- No longer dependent on checking against a Montana-specific master list of sequencing batches and samples. Also, separates pipeline analysis from sequencing batch, so that you can easily run the pipeline multiple times on the same data (e.g., with or without masking).
 
