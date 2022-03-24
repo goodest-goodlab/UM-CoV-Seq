@@ -1,3 +1,23 @@
+2022-03-15 Timothy Thurman <timothy.j.thurman@gmail.com>
+
+Some major changes to the pipeline, making it more flexible and less Montana-specific:
+
+    * New input and output folder specification- No longer dependent on checking against a Montana-specific master list of sequencing batches and samples. Also, separates pipeline analysis from sequencing batch, so that you can easily run the pipeline multiple times on the same data (e.g., with or without masking).
+
+    * Flexible file input- Allows for multiple R1 and R2 files per sample and merges them together, with various checks and warnings to make sure this happens correctly. This could maybe be made more ideal: for, e.g., MiSeq with only 1 set of R1 and R2 files, this wastes time copying them. 
+
+    * Removes hard-coded SLURM thread inputs, now uses snakemake's threads option, with options in the config file to specify numbers of cores for certain jobs. This should work flexibly on the HPC of on local multicore usage.
+
+    * Removes Nextclade binary, makes it part of the conda environment. Now, user can manage installation and updating of Nextclade. 
+
+    * Masking problematic site masking optional. Specify in the config file if you want to mask at problematic sites or not. 
+
+    * Adds some other options: testing on a small # of samples, excluding problematic samples, specifying resources for GATK. 
+
+    * Makes most intermediate files temporary, to save disk space. 
+
+    * Currently, removes the last step of assembling things for GISAID. Might be nice to add this functionality back in a flexible way. 
+
 2021-07-19 Timothy Thurman <timothy.j.thurman@gmail.com>
 
     * Added this CHANGELOG.

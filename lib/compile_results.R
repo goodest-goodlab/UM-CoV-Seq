@@ -42,44 +42,96 @@ cat("\n")
 cat(as.character(Sys.time()), " | Reading arguments\n")
 args = commandArgs(trailingOnly=TRUE)
 
-sample_file = args[1]
-batch = args[2]
-# Overall sample file and batch id
+# Previously, loaded in all the files and
+# base directories as arguments and parameters.
+# Makes for a lot of argument calling and parsing. But, perhaps
+# easier maintenance: if our file structure changes,
+# can change it in the snakefile without editing the R script 
+# (but we still need to edit the snakemake rule and arguments and make sure they're in order)
+# I think I'll switch to a hopefully easier option: just pass the output file
+# to R, and from there we can learn all that we need to know about the
+# directory structure.
+# only other argument is the masking flag, which tells us whether masking occured or not
 
-batch_dir = args[3]
-# The base batch output directory (should be results/BATCH)
+output_file = args[1]
+mask_problematic = args[2]
 
-multiqc_file = args[4]
+if (mask_problematic %in% c("TRUE", "FALSE") == F) {
+  stop(paste0("mask_problematic flag is ", mask_problematic, ", not TRUE or FALSE"))
+}
+
+# From the ouput file, figure out all the other filenames we need:
+
+# The base output directory
+base_dir = dirname(output_file)
+# The batch name to use
+batch_name = str_remove(basename(output_file), "-summary.csv")
+
 # The multiqc file with coverage info
+multiqc_file = file.path(base_dir, 
+                         "results",
+                         "multiqc", 
+                         "multiqc_report_raw_bams_data", 
+                         "multiqc_general_stats.txt")
 
-ivar_dir = args[5]
-gatk_dir = args[6]
-# The directories containing the variant calls 
+# Directories with variant calls for ivar and GATK
+ivar_dir = file.path(base_dir, 
+                     "results", 
+                     "ivar")
+# With GATK, the .vcf file we use depends on whether 
+# problematic site masking was performed
+if (mask_problematic == "TRUE") {
+  gatk_dir = file.path(base_dir, 
+                       "results",
+                       "gatk", 
+                       "vcfs",
+                       "filtered_and_masked")
+} else {
+  gatk_dir = file.path(base_dir, 
+                       "results",
+                       "gatk",  
+                       "vcfs",
+                       "filtered")
+}
 
-ivar_cons_file = args[7]
-gatk_cons_file = args[8]
-# The stats files for the consensus sequences
+# Stats files of consensus seqs
+ivar_stats_file = file.path(base_dir, 
+                       "results", 
+                       "ivar",
+                       "all_samples_consensus_stats.csv")
+gatk_stats_file = file.path(base_dir, 
+                       "results", 
+                       "gatk",
+                       "all_samples_consensus_stats.csv")
 
-ivar_pangolin_file = args[9]
-gatk_pangolin_file = args[10]
-# The pangolin lineages reports
 
-ivar_nextclade_file = args[11]
-gatk_nextclade_file = args[12]
+# Pangolin lineage reports
+ivar_pangolin_file = file.path(base_dir, 
+                          "results", 
+                          "ivar-pangolin",
+                          "lineage_report.csv")
+gatk_pangolin_file = file.path(base_dir, 
+                          "results", 
+                          "gatk-pangolin",
+                          "lineage_report.csv")
+
+
 # The nextclade lineage reports
+ivar_nextclade_file = file.path(base_dir, 
+                          "results", 
+                          "ivar-nextclade",
+                          "nextclade_report.tsv")
+gatk_nextclade_file = file.path(base_dir, 
+                          "results", 
+                          "gatk-nextclade",
+                          "nextclade_report.tsv")
 
-###############
-# Determin output file
-
-output_file = paste(batch_dir, batch, "-summary.csv", sep="")
 cat(as.character(Sys.time()), " | Output file:", output_file, "\n")
+cat(as.character(Sys.time()), " | Reading sample IDs from file:", multiqc_file, "\n")
 
-###############
-# Read the sample file
 
-cat(as.character(Sys.time()), " | Reading samples file:", sample_file, "\n")
-samples = read.csv(sample_file, comment.char="#", quote='"')
-samples = subset(samples, MiSeq.Run == batch)
+samples = read.delim(multiqc_file) %>% 
+  select(sample = Sample)
 
 ###############
 
@@ -101,40 +153,39 @@ cov_perc_1x_p = ggplot(coverage, aes(x=sample, y=perc_ref_1X_cov)) +
   geom_point(size=2, color="#920000") +
   geom_hline(yintercept=90, size=1, linetype="dashed", color="#56b4e9") +
   geom_text_repel(aes(label=ifelse(perc_ref_1X_cov < 90, as.character(sample), "")), show.legend=FALSE) +
-  #geom_text_repel(aes(label=sample)) +
   scale_y_continuous(expand=c(0,0), limits=c(0,100)) +
   scale_x_discrete(position = "top") +
   ylab("% of sites covered\nby at least 1 read") +
-  xlab(paste(batch, "sample")) +
+  xlab("sample") +
+  ggtitle(paste0("Analysis batch: ", batch_name)) + 
   bartheme() +
   theme(axis.text.x=element_text(angle=45, hjust=-0.001, size=6))
-#print(cov_perc_1x_p)
 # Plot the percent of sites that have at least 1 read covering them
 
-cov_perc_1x_p_out = paste(batch_dir, batch, "-1x-cov.pdf", sep="")
+cov_perc_1x_p_out = file.path(base_dir, 
+                              paste0(batch_name,"-1x-cov.pdf"))  
 cat(as.character(Sys.time()), " | Saving 1x coverage plot:", cov_perc_1x_p_out, "\n")
 ggsave(cov_perc_1x_p_out, cov_perc_1x_p, width=10, height=4, units="in")
 # Save the plot
-
-##
 
 cat(as.character(Sys.time()), " | Generating average coverage plot\n")
 coverage$sample = factor(coverage$sample, levels=coverage$sample[order(coverage$avg.coverage, decreasing=T)])
 # This orders the columns by read depth in descending order
 avg_cov_p = ggplot(coverage, aes(x=sample, y=avg.coverage)) +
   geom_bar(stat="identity", fill="transparent", color="#333333") +
-  #scale_x_continuous(expand=c(0,0)) +
   scale_y_continuous(expand=c(0,0)) +
   geom_hline(yintercept=mean(coverage$avg.coverage, na.rm=T), linetype="dashed", color="#999999") +
   geom_hline(yintercept=median(coverage$avg.coverage, na.rm=T), linetype="dashed", color="#920000") +
-  xlab(paste(batch, "sample")) +
+  xlab("sample") +
+  ggtitle(paste0("Analysis batch: ", batch_name)) + 
   ylab("Avg. depth") +
   bartheme() + 
   theme(axis.text.x=element_text(angle=45, hjust=1, size=6))
-#print(avg_cov_p)
 # Plot the average read depth per sample
 
-avg_cov_out = paste(batch_dir, batch, "-avg-cov.pdf", sep="")
+
+avg_cov_out = file.path(base_dir, 
+                        paste0(batch_name, "-avg-cov.pdf"))  
 cat(as.character(Sys.time()), " | Saving average coverage plot:", avg_cov_out, "\n")
 ggsave(avg_cov_out, avg_cov_p, width=10, height=4, units="in")
 # Save the plot
@@ -145,17 +196,18 @@ cat(as.character(Sys.time()), " | Generating % reads mapped plot\n")
 perc_reads_p = ggplot(coverage, aes(x=sample, y=perc.reads.mapped)) +
   geom_segment(aes(x=sample, y=100, xend=sample, yend=perc.reads.mapped), linetype="dotted", color="#666666") +
   geom_point(size=2, color="#920000") +
-  #geom_hline(yintercept=5000, size=1, linetype="dashed", color="#56b4e9") +
   scale_y_continuous(expand=c(0,0), limits=c(0,100)) +
   scale_x_discrete(position = "top") +
   ylab("% reads mapped") +
-  xlab(paste(batch, "sample")) +
+  xlab("sample") +
+  ggtitle(paste0("Analysis batch: ", batch_name)) + 
   bartheme() +
   theme(axis.text.x=element_text(angle=45, hjust=-0.001, size=6))
 #print(perc_reads_p)
 # Plot the percent of reads mapped per sample
 
-perc_reads_p_out = paste(batch_dir, batch, "-percent-mapped.pdf", sep="")
+perc_reads_p_out = file.path(base_dir, 
+                             paste0(batch_name, "-percent-mapped.pdf"))  
 cat(as.character(Sys.time()), " | Saving % reads mapped plot:", perc_reads_p_out, "\n")
 ggsave(perc_reads_p_out, perc_reads_p, width=10, height=4, units="in")
 # Save the plot
@@ -163,9 +215,9 @@ ggsave(perc_reads_p_out, perc_reads_p, width=10, height=4, units="in")
 ###############
 # Count variants
 
+# Count ivar variants
 cat(as.character(Sys.time()), " | Counting ivar variants\n")
 tsvs <- list.files(ivar_dir, pattern = ".tsv", full.names = T)
-#variants <- data.frame(sample = rep(NA, length(tsvs)), ivar_vars = rep(NA, length(tsvs)))
 ivar_vars = data.frame("sample"=c(), "ivar.num.vars"=c(), "ivar.vars"=c())
 i <- 1
 for (file in tsvs) {
@@ -181,14 +233,13 @@ for (file in tsvs) {
                                           "ivar.vars"=I(list(cur_vars))))
   i <- i + 1
 }
-# Count ivar variants
+
 
 cat(as.character(Sys.time()), " | Counting gatk variants\n")
-vcfs = list.files(gatk_dir, pattern=".masked.fvcf.gz", full.names=T)
-vcfs = vcfs[ !grepl(".tbi", vcfs) ]
+vcfs = list.files(gatk_dir, pattern=".fvcf.gz$", full.names=T)
 gatk_vars = data.frame("sample"=c(), "gatk.num.vars"=c(), "gatk.vars"=c())
 for(file in vcfs){
-  sample = str_remove(basename(file), ".masked.fvcf.gz")
+  sample = str_remove(str_remove(basename(file), ".fvcf.gz"), ".masked")
   cur_vars_df = read.csv(file, comment.char="#", sep="\t", header=F)
   cur_vars_df = subset(cur_vars_df, V5!= "." & V5 != "*" & V5 != "N" & V7 == "PASS")
   cur_vars = c()
@@ -227,13 +278,13 @@ for(i in 1:nrow(variants)){
 # Process the consensus stats files
 
 cat(as.character(Sys.time()), " | Getting ivar consensus stats\n")
-ivar_stats <- read.csv(ivar_cons_file, header=T) %>% 
+ivar_stats <- read.csv(ivar_stats_file, header=T) %>% 
   select(sample, N, length, perc.n, n.filter)
 names(ivar_stats) = c("sample", "ivar.Ns", "ivar.length", "ivar.perc.n", "ivar.n.filter")
 # Read the ivar stats
 
 cat(as.character(Sys.time()), " | Getting gatk consensus stats\n")
-gatk_stats <- read.csv(gatk_cons_file, header=T) %>% 
+gatk_stats <- read.csv(gatk_stats_file, header=T) %>% 
   select(sample, N, length, perc.n, n.filter)
 names(gatk_stats) = c("sample", "gatk.Ns", "gatk.length", "gatk.perc.n", "gatk.n.filter")
 # Read the gatk stats
@@ -253,7 +304,8 @@ n_p = ggplot(stats, aes(x=sample, y=ivar.Ns, color="iVar")) +
   geom_text_repel(aes(label=ifelse(gatk.n.filter=="FILTER", as.character(sample), "")), show.legend=FALSE) +
   scale_y_continuous(expand=c(0,0), limits=c(0,31000)) +
   ylab("# Ns") +
-  xlab(paste(batch, "sample")) +
+  xlab("sample") +
+  ggtitle(paste0("Analysis batch: ", batch_name)) + 
   scale_color_manual(name="", values=c("iVar"="#920000", "GATK"="#db6d00")) +
   bartheme() +
   theme(axis.text.x=element_text(angle=45, hjust=1, size=6),
@@ -261,7 +313,8 @@ n_p = ggplot(stats, aes(x=sample, y=ivar.Ns, color="iVar")) +
 #print(perc_n_p)
 # Plot the number of Ns for each sample
 
-n_p_out = paste(batch_dir, batch, "-num-Ns.pdf", sep="")
+n_p_out = file.path(base_dir, 
+                    paste0(batch_name, "-num-Ns.pdf")) 
 cat(as.character(Sys.time()), " | Saving Ns plot:", n_p_out, "\n")
 ggsave(n_p_out, n_p, width=10, height=4, units="in")
 # Save the plot
@@ -319,7 +372,7 @@ final_table = merge(coverage, stats, by="sample")
 final_table = merge(final_table, variants, by="sample")
 final_table = merge(final_table, pangolin, by="sample")
 final_table = merge(final_table, nextclade, by="sample")
-final_table$sample = str_replace(final_table$sample, "-ICV", "")
+
 # Merge all the tables
 
 cat(as.character(Sys.time()), " | Writing summary output file:", output_file, "\n")

@@ -11,92 +11,149 @@ start_time = datetime.now()
 ##   GLOBALS   ##
 ################# 
 
-# Mostly pulled from config file
-
-# The name of the batch based on the MiSeq run ID found in the sample file. Should also be present
-BATCH_NAME = config["batch"]
-# Batch 1, received 06.10.2021: V3P67 : runtime with 20 cores: 2913.04 seconds (49 mins)
-# Batch 2, received 07.15.2021: V4R1  : runtime with 20 cores: 2201.23 seconds (37 mins)
-
-
-# The sample file with barcods, UMGC IDs, data source, and MiSeq run ID.
-SAMPLE_FILE = config["sample_file"]
-
-# List the directory containing subdirectories for all sequence batches. The exact directory for this
-# batch will be determined by the BATCH_NAME.
-BASE_DATA_FOLDER = config["base_data_folder"]
-
-# List the reference genome you want to map to:
+# Main config settings
+ANALYSIS = config["analysis_ID"]
+INPUT_DIR = config["input_dir"]
+SEQUENCER = config["sequencer"]
+OUTPUT_DIR = config["output_dir"]
 REF = config["ref_genome"]
-
-# List the GFF file you want to use:
 GFF = config["ref_gff"]
+NC_DIR = config["nextclade_resources"]
 
-BASE_BATCH_DIR = os.path.normpath(os.path.join("results", BATCH_NAME))
+# optional config settings
+samples_to_remove = config["exclude_samples"]
+trim_threads = config["trimming_threads"]
+map_threads = config["mapping_threads"]
+qualimap_threads = config["qualimap_threads"]
+java_opt = config["gatk_java_opts"]
+mask_prob = str(config["mask_problematic_sites"]).upper()
+test_pipe = str(config["test_pipeline"])
+
+# If java opt is empty, make it an empty string
+if java_opt is None:
+    java_opt = ""
+
 
 ###############
 ##   SETUP   ##
 ############### 
 
-# Get the raw data folder based on the current batch name
-indirs = os.listdir(BASE_DATA_FOLDER)
-RAW_DATA_FOLDER = "unassigned"
-for indir in indirs:
-    if BATCH_NAME in indir:
-        RAW_DATA_FOLDER = os.path.join(BASE_DATA_FOLDER, indir)
+# Check that the input folder exists
+# Error if not
+if os.path.isdir(INPUT_DIR) == False:
+    raise OSError("\nInput directory " + INPUT_DIR + " not found\n")
 
-# Raise a sensible error if the folder doesn't exist
-if RAW_DATA_FOLDER == "unassigned":
-    raise OSError("Folder matching given batch name not found in base_data_folder")
 
 # Pull all sample files from the raw data folder
-# get filenames of the individual fastas
-fasta_fullpath = []
+# get filenames of the individual fastq files
+fastq_fullpath = []
 samples = []
-for root, dirs, files in os.walk(RAW_DATA_FOLDER):
+for root, dirs, files in os.walk(INPUT_DIR):
     for name in files:
         if re.search("_S\d+_L\d+_R[12]_001.fastq.gz$", name):
-            samples.append(re.sub("_S\d+_L\d+_R[12]_001.fastq.gz$", "", name))
-            fasta_fullpath.append(os.path.join(root, name))
+            samples.append(re.sub("_S\d+_L\d+_R\d+_001.fastq.gz$", "", name))
+            fastq_fullpath.append(os.path.join(root, name))
+
+if len(fastq_fullpath) < 1:
+    raise OSError("\nNo .fastq.gz files matching Illumina naming scheme found in input dir:\n" + INPUT_DIR + "\n")
 
 # Get unique sample IDs
 samples = list(set(samples))
 samples.sort()
 
-# Can comment/uncomment the below line for testing,
-# to run pipeline on just the first two samples. 
-# samples = samples[1:3]
 
-# Get filename for the BWA genome index
-index_path= REF + ".amb"
+# Optional way to test on just the first few samples in the list
+if (test_pipe.upper() != "FALSE"):
+    samples = samples[1:int(test_pipe)+1]
 
+
+# Optional sample removal
+if (len(samples_to_remove) >= 1):
+    for sample in samples_to_remove:
+        samples.remove(sample)
+
+# Get filenames for the index 
+index_bwa= REF + ".amb"
+index_gatk = str(os.path.splitext(REF)[0]) + ".dict"
+
+# Get expected number of lane files
+# based on the sequencer type
+def files_per_sequencer(sequencer):
+    if (sequencer == "MiSeq"):
+        return 1
+    elif (sequencer == "NextSeq"):
+        return 4
+    else:
+        raise NameError("\n" +sequencer + " is not a valid option for sequencer. Valid options:\nMiSeq, NextSeq\n")
+
+
+expected_files = files_per_sequencer(SEQUENCER)
+
+# Check the masking option,
+# make sure it is true or false
+if (mask_prob == "TRUE" or mask_prob == "FALSE") != True:
+    raise NameError("\nmask_problematic_sites option must be either true or false, not " + str(mask_prob) + "\n")
 
 ######################
 ## HELPER FUNCTIONS ##
 ######################
 
-# At the very start, need to match each
-# sample ID back to its fastq files.
-# This assumes that each sample only has one set of sequence files in a given folder. 
-def get_R1_for_sample(wildcards):
-    outfile = "file_not_found.txt"
-    for filename in fasta_fullpath:
-        if re.search(wildcards.sample, filename):
-            if re.search("R1", filename):
-                outfile = filename
-    return outfile
+# A short function to add the output directory in front 
+# of filepaths, for ease of listing filenames below
+def bd(filepath):
+    return os.path.normpath(os.path.join(OUTPUT_DIR, ANALYSIS, filepath))
 
-def get_R2_for_sample(wildcards):
-    outfile = "file_not_found.txt"
-    for filename in fasta_fullpath:
-        if re.search(wildcards.sample, filename):
-            if re.search("R2", filename):
-                outfile = filename
-    return outfile
+# Functions for finding the fastq read files for a given sample
+# First, a single function that finds the R1 and R2 files for a given sample
+# and performs some checks to make sure they are properly paired
+# and there are the correct numbers
+def find_read_files(wildcards):
+    # Create search strings to match R1 and R2 files with standard Illumina names
+    search_string_R1 = "^" + str({wildcards.sample}).strip("{'}") + "_.*_R1_.*\.fastq\.gz"
+    search_string_R2 = "^" + str({wildcards.sample}).strip("{'}") + "_.*_R2_.*\.fastq\.gz"
+    # Find the R1 and R2 files
+    result_R1 = [f for f in fastq_fullpath if re.search(search_string_R1, os.path.basename(f))]
+    result_R2 = [f for f in fastq_fullpath if re.search(search_string_R2, os.path.basename(f))]
+    # Sort them
+    result_R1.sort()
+    result_R2.sort()
+    
+    # Check that R1 and R2 have an equal number of files
+    # Give error if not (otherwise there will be issues with read pairing)
+    if len(result_R1) != len(result_R2):
+        raise OSError("\nUnequal number of R1 and R2 files found for sample: " + str({wildcards.sample}) + "\nR1 files: " + str(len(result_R1)) + "\nR2 files: " + str(len(result_R2)) + "\n")
+    
+    # Check that the the filenames for R1 and R2 match up properly
+    # Throw error if not (out-of-order files will cause issues with read pairing)
+    R1_check = [x.replace("_R1_", "") for x in result_R1]
+    R2_check = [x.replace("_R2_", "") for x in result_R2]
+    
+    if R1_check != R2_check:
+        print(result_R1)
+        print(result_R2)
+        raise OSError("\nFilenames of R1 and R2 reads for sample " + str({wildcards.sample}) + " do not match, this may cause issue with read pairing\nCheck above for the list of filenames causing this issue\n")
+
+    # Check for the expected number of files
+    # Print warning if not, but analysis can proceed
+    if len(result_R1) != expected_files:
+        print("Found " + str(len(result_R1)) + " sets of read files for sample " + str({wildcards.sample}).strip("{'}") + ", not " + str(expected_files))
+    
+    # Return lists of R1 and R2 files
+    return [result_R1, result_R2]
+
+# Then, two simple functions for use as input
+# Which just return the R1 and R2 files, respectively
+def find_R1_files(wildcards):
+    R1_files = find_read_files(wildcards)[0]
+    return R1_files
+def find_R2_files(wildcards):
+    R2_files = find_read_files(wildcards)[1]
+    return R2_files
+
 
 # A function to create a readgroup for BWA from the sample, lane, and run info
 def make_RG(wildcards):
-    for filename in fasta_fullpath:
+    for filename in fastq_fullpath:
         if re.search(wildcards.sample, filename):
             if re.search("R1", filename):
                 basename = os.path.basename(filename)
@@ -113,11 +170,19 @@ def make_RG(wildcards):
     rg_out = "@RG\\tID:" + sample_ID + sample_num + "\\tLB:" + sample_ID + "\\tPL:ILLUMINA" + "\\tSM:" + sample_ID
     return rg_out
 
-# A short function to add the batch directory in front of 
-# subdirectory paths for inputs/outputs/params
-# isolates results between sequencing batchs/pipeline runs
-def bd(filepath):
-    return os.path.normpath(os.path.join("results", BATCH_NAME, filepath))
+
+def ivar_cons_input_files(wildcards):
+    if mask_prob == "TRUE":
+        inputs = {"ivar_pileup": bd("results/pileup_masked/" + str({wildcards.sample}).strip("{'}") + ".masked.pileup"),
+                  "sample": bd("processed_reads/per_sample_bams/" + str({wildcards.sample}).strip("{'}") + ".sorted.bam"),
+                  "ref": REF,
+                  "gff": GFF}
+    else:       
+        inputs = {"ivar_pileup": bd("results/pileup/" + str({wildcards.sample}).strip("{'}") + ".pileup"),
+                  "sample": bd("processed_reads/per_sample_bams/" + str({wildcards.sample}).strip("{'}") + ".sorted.bam"),
+                  "ref": REF,
+                  "gff": GFF}
+    return inputs
 
 
 ####################
@@ -127,12 +192,15 @@ localrules: all
 
 # Onstart and onsuccess, make a log files and copy the snakefile that was used
 # into the results directory for posterity
-pipeline_log_file = bd("logs/pipeline_log.tsv")
+#  TODO: add logging of all config file stuff??
+# Add avoid over-writing, so that a pipeline can be run multiple times??
+# Add in number of samples analyzed
+pipeline_log_file = bd("pipeline_log.tsv")
 onstart:
     os.makedirs(os.path.dirname(pipeline_log_file), exist_ok=True)
     with open(pipeline_log_file, 'w') as tsvfile:
         writer = csv.writer(tsvfile, delimiter='\t')
-        writer.writerow(["Raw data folder used:", RAW_DATA_FOLDER])
+        writer.writerow(["Raw data folder used:", INPUT_DIR])
         writer.writerow(["Reference genome used:", REF])
         writer.writerow(["GFF file used:", GFF])
         writer.writerow(["Start time:", start_time.strftime("%B %d, %Y: %H:%M:%S")])
@@ -153,8 +221,23 @@ onsuccess:
 rule all:
     input:
         bd("results/multiqc/multiqc_report_trimming.html"), # QC report on trimming
-        bd(BATCH_NAME + "-summary.csv"), # Final summary of the rest of the results
-        bd("gisaid/gisaid.fa") # The fasta file to upload to gisaid with UMGC samples IDs instead of barcodes
+        bd(ANALYSIS + "-summary.csv") # Final summary of the rest of the results
+        #bd("gisaid/gisaid.fa") # The fasta file to upload to gisaid with UMGC samples IDs instead of barcodes
+
+
+## concat_fastas_across_lanes : combine multiple fasta files for the same sample
+rule concat_fastas_across_lanes:
+    input:
+        R1_files = find_R1_files,
+        R2_files = find_R2_files
+    output:
+        R1_out = temp(bd("processed_reads/reads_lane_concat/{sample}_R1.fastq.gz")),
+        R2_out = temp(bd("processed_reads/reads_lane_concat/{sample}_R2.fastq.gz"))
+    shell:
+        """
+        cat {input.R1_files} > {output.R1_out}
+        cat {input.R2_files} > {output.R2_out}
+        """
 
 
 ## trim_raw_reads : remove adaptors and low-quality bases
@@ -171,28 +254,27 @@ rule all:
 # -h, -j Name of report HTML and JSON  output reports
 rule trim_and_merge_raw_reads:
     input:
-        raw_r1=get_R1_for_sample,
-        raw_r2=get_R2_for_sample
+        raw_r1=bd("processed_reads/reads_lane_concat/{sample}_R1.fastq.gz"),
+        raw_r2=bd("processed_reads/reads_lane_concat/{sample}_R2.fastq.gz")
     output:
-        trim_merged= bd("processed_reads/trimmed/{sample}.merged.fq.gz"),
-        trim_r1_pair= bd("processed_reads/trimmed/{sample}.nomerge.pair.R1.fq.gz"),
-        trim_r2_pair= bd("processed_reads/trimmed/{sample}.nomerge.pair.R2.fq.gz"),
-        trim_r1_nopair= bd("processed_reads/trimmed/{sample}.nopair.R1.fq.gz"),
-        trim_r2_nopair= bd("processed_reads/trimmed/{sample}.nopair.R2.fq.gz"),
+        trim_merged= temp(bd("processed_reads/trimmed/{sample}.merged.fq.gz")),
+        trim_r1_pair= temp(bd("processed_reads/trimmed/{sample}.nomerge.pair.R1.fq.gz")),
+        trim_r2_pair= temp(bd("processed_reads/trimmed/{sample}.nomerge.pair.R2.fq.gz")),
+        trim_r1_nopair= temp(bd("processed_reads/trimmed/{sample}.nopair.R1.fq.gz")),
+        trim_r2_nopair= temp(bd("processed_reads/trimmed/{sample}.nopair.R2.fq.gz")),
         rep_html= bd("logs/fastp/{sample}_trim_fastp.html"),
         rep_json= bd("logs/fastp/{sample}_trim_fastp.json")
-    resources:
-        cpus = 1
+    threads: trim_threads
     log:
         bd("logs/fastp/{sample}_trim_log.txt")
     shell:
         """
-        fastp -i {input.raw_r1} -I {input.raw_r2} -m --merged_out {output.trim_merged} --out1 {output.trim_r1_pair} --out2 {output.trim_r2_pair} --unpaired1 {output.trim_r1_nopair} --unpaired2 {output.trim_r2_nopair} --detect_adapter_for_pe --cut_front --cut_front_window_size 5 --cut_front_mean_quality 20 -l 25 -j {output.rep_json} -h {output.rep_html} -w $SLURM_CPUS_PER_TASK 2> {log}
+        fastp -i {input.raw_r1} -I {input.raw_r2} -m --merged_out {output.trim_merged} --out1 {output.trim_r1_pair} --out2 {output.trim_r2_pair} --unpaired1 {output.trim_r1_nopair} --unpaired2 {output.trim_r2_nopair} --detect_adapter_for_pe --cut_front --cut_front_window_size 5 --cut_front_mean_quality 20 -l 25 -j {output.rep_json} -h {output.rep_html} -w 1 2> {log}
         """
 
 
 # The snakemake linter prefers that, for rules like this
-# where we base directories or basenames in as parameters,
+# where we pass base directories or basenames in as parameters,
 # that they be generated through lambda functions from the inputs and/or outputs,
 # Insted of hard coding.
 # E.g., for this rule here, would use:
@@ -219,22 +301,21 @@ rule multiqc_trim_reports:
         multiqc -f {params.dir_in} -o {params.dir_out} -n multiqc_report_trimming.html > {log} 2>&1
         """
 
-## index_ref: index genome for BWA
+## index_for_bwa: index genome for BWA
 # Index the reference genome, if it isn't already
-rule index_ref:
+rule index_for_bwa:
     input:
         REF
     output:
         multiext(REF, ".amb", ".ann", ".bwt", ".pac", ".sa")
     log:
-        bd("logs/index_ref.log")  
+        bd("logs/index_ref_bwa.log")  
     shell:
         """
         bwa index {input} > {log} 2>&1
         """
-# GWCT- multiext isn't working anymore??
-# TJT- not sure if this is a version thing? Seems to work fine for me, 
-# on version 6.4.1 and 6.6.0
+
+
 
 ## map_merged_reads: map trimmed, merged reads to reference
 #   BWA mem algorithm. Settings:
@@ -248,20 +329,19 @@ rule map_merged_reads:
     input:
         reads=bd("processed_reads/trimmed/{sample}.merged.fq.gz"),
         genome=REF,
-        genome_index=index_path
+        genome_index=index_bwa
     output:
-        bd("processed_reads/mapped/{sample}.merged.sorted.bam")
+        temp(bd("processed_reads/mapped/{sample}.merged.sorted.bam"))
     params:
         basename=bd("processed_reads/mapped/{sample}"),
         read_group=make_RG
     log:
         bd("logs/mapping/{sample}_merged.log")
-    resources:
-        cpus=2
+    threads: map_threads
     shell:
         """
         # Run bwa mem, pipe to samtools view to convert to bam, pipe to samtools sort
-        bwa mem -M -t $SLURM_CPUS_PER_TASK -R '{params.read_group}' {input.genome} {input.reads} 2> {log} | samtools view -b - 2>> {log} | samtools sort - -o {output} 2>> {log}
+        bwa mem -M -t {threads} -R '{params.read_group}' {input.genome} {input.reads} 2> {log} | samtools view -b - 2>> {log} | samtools sort - -o {output} 2>> {log}
         """
 
 # # map_unmerged_pairs: map trimmed, not merged, paired reads to reference
@@ -277,20 +357,19 @@ rule map_unmerged_pairs:
         reads_forward=bd("processed_reads/trimmed/{sample}.nomerge.pair.R1.fq.gz"),
         reads_reverse=bd("processed_reads/trimmed/{sample}.nomerge.pair.R2.fq.gz"),
         genome=REF,
-        genome_index=index_path
+        genome_index=index_bwa
     output:
-        bd("processed_reads/mapped/{sample}.nomerge.paired.sorted.bam")
+        temp(bd("processed_reads/mapped/{sample}.nomerge.paired.sorted.bam"))
     params:
         basename=bd("processed_reads/mapped/{sample}"),
         read_group=make_RG
     log:
         bd("logs/mapping/{sample}_nomerge_paired.log")
-    resources:
-        cpus=2
+    threads: map_threads
     shell:
         """
         # Run bwa mem, pipe to samtools view to convert to bam, pipe to samtools sort 
-        bwa mem -M -t $SLURM_CPUS_PER_TASK -R '{params.read_group}' {input.genome} {input.reads_forward} {input.reads_reverse} 2> {log} | samtools view -b - 2>> {log} | samtools sort - -o {output} 2>> {log}
+        bwa mem -M -t {threads} -R '{params.read_group}' {input.genome} {input.reads_forward} {input.reads_reverse} 2> {log} | samtools view -b - 2>> {log} | samtools sort - -o {output} 2>> {log}
         """
 
 ## map_unmerged_unpaired: map trimmed, unmerged, unpaired reads to reference
@@ -306,26 +385,25 @@ rule map_unmerged_unpaired:
         reads_forward=bd("processed_reads/trimmed/{sample}.nopair.R1.fq.gz"),
         reads_reverse=bd("processed_reads/trimmed/{sample}.nopair.R2.fq.gz"),
         genome=REF,
-        genome_index=index_path
+        genome_index=index_bwa
     output:
-        mapped_forward = bd("processed_reads/mapped/{sample}.nopair.R1.sorted.bam"),
-        mapped_reverse = bd("processed_reads/mapped/{sample}.nopair.R2.sorted.bam")
+        mapped_forward = temp(bd("processed_reads/mapped/{sample}.nopair.R1.sorted.bam")),
+        mapped_reverse = temp(bd("processed_reads/mapped/{sample}.nopair.R2.sorted.bam"))
     params:
         basename=bd("processed_reads/mapped/{sample}"),
         read_group=make_RG
     log:
         forward=bd("logs/mapping/{sample}_nopair_R1.log"),
         rev=bd("logs/mapping/{sample}_nopair_R2.log")
-    resources:
-        cpus=2
+    threads: map_threads
     shell:
         """
         # Run bwa mem, pipe to samtools view to convert to bam, save as a tmp.bam
         # Read 1
-        bwa mem -M -t $SLURM_CPUS_PER_TASK -R '{params.read_group}' {input.genome} {input.reads_forward} 2> {log.forward} | samtools view -b - 2>> {log.forward} | samtools sort - -o {output.mapped_forward} 2>> {log.forward}
+        bwa mem -M -t {threads} -R '{params.read_group}' {input.genome} {input.reads_forward} 2> {log.forward} | samtools view -b - 2>> {log.forward} | samtools sort - -o {output.mapped_forward} 2>> {log.forward}
 
         # Read 2
-        bwa mem -M -t $SLURM_CPUS_PER_TASK -R '{params.read_group}' {input.genome} {input.reads_reverse} 2> {log.rev} | samtools view -b - 2>> {log.rev} | samtools sort - -o {output.mapped_reverse} 2>> {log.rev}
+        bwa mem -M -t {threads} -R '{params.read_group}' {input.genome} {input.reads_reverse} 2> {log.rev} | samtools view -b - 2>> {log.rev} | samtools sort - -o {output.mapped_reverse} 2>> {log.rev}
         """
 
 ## merge_bams_by_sample : merge bam files by sample and run
@@ -341,13 +419,12 @@ rule merge_sample_bams:
         nopair_rev=bd("processed_reads/mapped/{sample}.nopair.R2.sorted.bam")
     log:
         bd("logs/merge_bams/{sample}_merge.log")
-    resources:
-        cpus=4
+    threads: map_threads
     output:
         bd("processed_reads/per_sample_bams/{sample}.sorted.bam")
     shell:
         """
-        samtools merge -c -t {resources.cpus} {output} {input.merged} {input.unmerged_pair} {input.nopair_fwd} {input.nopair_rev} 2> {log}
+        samtools merge -c -t {threads} {output} {input.merged} {input.unmerged_pair} {input.nopair_fwd} {input.nopair_rev} 2> {log}
         """
 
 ## index_raw_bams: index bams
@@ -373,13 +450,12 @@ rule qualimap_raw_bam:
         bd("processed_reads/QC/qualimap/{sample}/qualimapReport.html")
     params:
         out_dir=bd("processed_reads/QC/qualimap/{sample}")
-    resources:
-        cpus=8
+    threads: qualimap_threads
     log:
         bd("logs/qualimap/{sample}.log")
     shell:
         """
-        qualimap bamqc -bam {input.bam} -nt $SLURM_CPUS_PER_TASK -outdir {params.out_dir} -outformat html --java-mem-size=4G > {log} 2>&1
+        qualimap bamqc -bam {input.bam} -nt {threads} -outdir {params.out_dir} -outformat html --java-mem-size=4G > {log} 2>&1
         """
 
 ## multiqc_raw_bam_report: collate qualimap reports on raw bams
@@ -408,40 +484,31 @@ rule multiqc_raw_bam_report:
 # -d 0 no max depth limit
 # -B disable BAQ computation
 # -Q 0 No minimum base quality
-
 rule pileup:
     input:
         sample = bd("processed_reads/per_sample_bams/{sample}.sorted.bam"),
         ref=REF
     output:
-        var_pileup = bd("results/pileup/{sample}-var.pileup"),
-        cons_pileup = bd("results/pileup/{sample}-cons.pileup")
+        ivar_pileup = temp(bd("results/pileup/{sample}.pileup"))
     log:
-        var=bd("logs/pileup/{sample}-var.log"),
-        cons=bd("logs/pileup/{sample}-cons.log")
+        bd("logs/pileup/{sample}.log")
     shell:
         """
-        samtools mpileup -aa -A -d 0 -B -Q 0 --reference {input.ref} {input.sample} > {output.var_pileup} 2> {log.var}
-
-        samtools mpileup -aa -A -d 0 -B -Q 0 --reference {input.ref} {input.sample} > {output.cons_pileup} 2> {log.cons}
+        samtools mpileup -aa -A -d 0 -B -Q 0 --reference {input.ref} {input.sample} > {output.ivar_pileup} 2> {log}
         """
 
 ## mask_pileup: Mask problematic sites from the pileups by converting all mapped bases at those
 # positions to the reference base, preventing variants from being called.
 rule mask_pileup:
     input:
-        var_pileup = bd("results/pileup/{sample}-var.pileup"),
-        cons_pileup = bd("results/pileup/{sample}-cons.pileup")       
+        ivar_pileup = bd("results/pileup/{sample}.pileup")    
     output:
-        masked_var_pileup = bd("results/pileup/{sample}-var.masked.pileup"),
-        masked_cons_pileup = bd("results/pileup/{sample}-cons.masked.pileup")
+        masked_ivar_pileup = temp(bd("results/pileup_masked/{sample}.masked.pileup"))
     log:
-        var=bd("logs/mask_pileup/{sample}-var.log"),
-        cons=bd("logs/mask_pileup/{sample}-cons.log")
+        bd("logs/mask_pileup/{sample}.log")
     shell:
         """
-        python lib/mask_pileup.py {input.var_pileup} {output.masked_var_pileup} > {log.var} 2>&1
-        python lib/mask_pileup.py {input.cons_pileup} {output.masked_cons_pileup} > {log.cons} 2>&1
+        python lib/mask_pileup.py {input.ivar_pileup} {output.masked_ivar_pileup} > {log} 2>&1
         """
 
 ## ivar_raw_bams: Call variants and make consensus seqs for the raw bams
@@ -457,11 +524,7 @@ rule mask_pileup:
 # -t 0.5 50% of reads needed for calling consensus base
 rule ivar_variant_and_consensus:
     input:
-        masked_var_pileup = bd("results/pileup/{sample}-var.masked.pileup"),
-        masked_cons_pileup = bd("results/pileup/{sample}-cons.masked.pileup"),
-        sample = bd("processed_reads/per_sample_bams/{sample}.sorted.bam"),
-        ref=REF,
-        gff=GFF
+        unpack(ivar_cons_input_files)
     output:
         fa=bd("results/ivar/{sample}.fa"),
         qual=bd("results/ivar/{sample}.qual.txt"),
@@ -474,11 +537,26 @@ rule ivar_variant_and_consensus:
     shell:
         """
         # Call Variants
-        cat {input.masked_var_pileup} | ivar variants -p {params.basename} -q 20 -t 0.5 -m 10 -r {input.ref} -g {input.gff} > {log.var} 2>&1
+        cat {input.ivar_pileup} | ivar variants -p {params.basename} -q 20 -t 0.5 -m 10 -r {input.ref} -g {input.gff} > {log.var} 2>&1
 
         # Make Consensus sequence
-        cat {input.masked_cons_pileup} | ivar consensus -p {params.basename} -q 20 -t 0.5 -m 10 > {log.cons} 2>&1
+        cat {input.ivar_pileup} | ivar consensus -p {params.basename} -q 20 -t 0.5 -m 10 > {log.cons} 2>&1
         """
+
+## index_for_GATK: index genome for GATK
+# Index the reference genome, if it isn't already
+rule index_for_GATK:
+    input:
+        REF
+    output:
+        index_gatk
+    log:
+        bd("logs/index_ref_gatk.log")
+    shell:
+        """
+        gatk CreateSequenceDictionary -R {input} > {log} 2>&1
+        """
+
 
 ## gatk_haplotypecaller: Call variants with GATK. Emit all sites (-ERC GVCF) for genotyping
 # and masking low quality sites called as ./.
@@ -486,14 +564,17 @@ rule gatk_haplotypecaller:
     input:
         sample = bd("processed_reads/per_sample_bams/{sample}.sorted.bam"),
         bai = bd("processed_reads/per_sample_bams/{sample}.sorted.bam.bai"),
-        ref = REF
+        ref = REF,
+        index = index_gatk
     log:
         hc_log = bd("logs/gatk/{sample}_haplotypecaller.log")
     output:
-        gvcf = bd("results/gatk/{sample}.gvcf.gz")
+        gvcf = bd("results/gatk/gvcfs/{sample}.gvcf.gz")
+    params:
+        options=java_opt
     shell:
         """
-        gatk HaplotypeCaller -R {input.ref} -I {input.sample} --sample-ploidy 1 -stand-call-conf 30 --native-pair-hmm-threads 4 -ERC GVCF -O {output.gvcf} > {log.hc_log} 2>&1
+        gatk {params.options}  HaplotypeCaller -R {input.ref} -I {input.sample} --sample-ploidy 1 -stand-call-conf 30 --native-pair-hmm-threads 4 -ERC GVCF -O {output.gvcf} > {log.hc_log} 2>&1
         """
 
 ## gatk_genotypgvcfs: Genotype the GVCFs from the previous steps and emit all sites to 
@@ -502,15 +583,18 @@ rule gatk_genotypegvcfs:
     input:
         sample = bd("processed_reads/per_sample_bams/{sample}.sorted.bam"),
         bai = bd("processed_reads/per_sample_bams/{sample}.sorted.bam.bai"),
-        gvcf = bd("results/gatk/{sample}.gvcf.gz"),
-        ref = REF
+        gvcf = bd("results/gatk/gvcfs/{sample}.gvcf.gz"),
+        ref = REF,
+        index = index_gatk
     log:
         gt_log = bd("logs/gatk/{sample}_genotypegvcfs.log")
     output:
-        vcf = bd("results/gatk/{sample}.vcf.gz")
+        vcf = bd("results/gatk/vcfs/raw/{sample}.vcf.gz")
+    params:
+        options=java_opt
     shell:
         """
-        gatk GenotypeGVCFs -R {input.ref} -V {input.gvcf} -O {output.vcf} --sample-ploidy 1 --include-non-variant-sites > {log.gt_log} 2>&1
+        gatk {params.options} GenotypeGVCFs -R {input.ref} -V {input.gvcf} -O {output.vcf} --sample-ploidy 1 --include-non-variant-sites > {log.gt_log} 2>&1
         """
 
 ## filter_vcfs: Filter variants with bcftools.
@@ -525,33 +609,35 @@ rule gatk_genotypegvcfs:
 # ALT="*": Filter variants where the alt is "*", which means it spans a deletion.
 rule filter_vcfs:
     input:
-        vcf = bd("results/gatk/{sample}.vcf.gz")
+        vcf = bd("results/gatk/vcfs/raw/{sample}.vcf.gz")
     log:
         gt_log = bd("logs/gatk/{sample}_bcftools_filter.log")
     output:
-        fvcf = bd("results/gatk/{sample}.fvcf.gz")
+        fvcf = bd("results/gatk/vcfs/filtered/{sample}.fvcf.gz")
     shell:
         """
         bcftools filter -m+ -e 'MQ < 30.0 || FORMAT/DP < 10 || FORMAT/DP > 1200 || FORMAT/GQ < 20 || FORMAT/AD[0:1] / FORMAT/DP < 0.5 || ALT="*"' -s FILTER --IndelGap 5 -Oz -o {output.fvcf} {input.vcf} > {log.gt_log} 2>&1
         """
-    
-## mask_vcfs: Mask/filter GATK variants at positions in the problematic sites VCF file.
+
+## mask_vcfs: Mask/filter GATK variants at positions without sufficient info for a genotype call, and optionally at problematic sites.
 rule mask_vcfs:
     input:
-        fvcf = bd("results/gatk/{sample}.fvcf.gz")
+        fvcf = bd("results/gatk/vcfs/filtered/{sample}.fvcf.gz")
     output:
-        mvcf = bd("results/gatk/{sample}.masked.fvcf.gz")
+        mvcf = bd("results/gatk/vcfs/filtered_and_masked/{sample}.masked.fvcf.gz")
     log:
         bd("logs/mask_vcf/{sample}.log")
+    params:
+        mask_problematic = mask_prob
     shell:
         """
-        python lib/mask_vcf.py {input.fvcf} {output.mvcf} > {log} 2>&1
+        python lib/mask_vcf.py {input.fvcf} {output.mvcf} {params.mask_problematic} > {log} 2>&1
         """
 
 ## bcftools_consensus: Generate the consensus sequences from the GATK variant calls.
 rule bcftools_consensus:
     input:
-        mvcf = bd("results/gatk/{sample}.masked.fvcf.gz"),
+        mvcf = bd("results/gatk/vcfs/filtered_and_masked/{sample}.masked.fvcf.gz"),
         ref = REF
     log:
         gt_log = bd("logs/gatk/{sample}_bcftools_consensus.log")
@@ -575,16 +661,13 @@ rule combine_raw_consensus:
     output:
         ivar_cons = bd("results/ivar/all_samples_consensus.fasta"),
         gatk_cons = bd("results/gatk/all_samples_consensus.fasta")
-    params:
-        ivar_base_dir = bd("results/ivar/"),
-        gatk_base_dir = bd("results/gatk/")
     log:
         ivar=bd("logs/combine_consensus/ivar_consensus.log"),
         gatk=bd("logs/combine_consensus/gatk_consensus.log")
     shell:
         """
-        cat {params.ivar_base_dir}/*.fa > {output.ivar_cons} 2> {log.ivar}
-        cat {params.gatk_base_dir}/*.fa > {output.gatk_cons} 2> {log.gatk}
+        cat {input.ivar_fa} > {output.ivar_cons} 2> {log.ivar}
+        cat {input.gatk_fa} > {output.gatk_cons} 2> {log.gatk}
         """
 
 ## consensus_stats: calculate number of Ns for each sample
@@ -630,10 +713,11 @@ rule nextclade_assign_clade:
     input:
         ivar_consensus = bd("results/ivar/all_samples_consensus.fasta"),
         gatk_consensus = bd("results/gatk/all_samples_consensus.fasta"),
-        tree = "nextclade-resources/tree.json",
-        ref = "nextclade-resources/reference.fasta",
-        qc_config = "nextclade-resources/qc.json",
-        gff = "nextclade-resources/genemap.gff"
+        tree = os.path.join(NC_DIR, "tree.json"),
+        ref = os.path.join(NC_DIR, "reference.fasta"),
+        qc_config = os.path.join(NC_DIR, "qc.json"),
+        gff = os.path.join(NC_DIR, "genemap.gff"),
+        virus_prop = os.path.join(NC_DIR, "virus_properties.json")
     output:
         ivar_report = bd("results/ivar-nextclade/nextclade_report.tsv"),
         gatk_report = bd("results/gatk-nextclade/nextclade_report.tsv")
@@ -645,18 +729,15 @@ rule nextclade_assign_clade:
         gatk_base_dir = bd("results/gatk-nextclade/"),
     shell:
         """
-        ./nextclade-1.0.0-alpha.9 -i {input.ivar_consensus} --input-root-seq {input.ref} -a {input.tree} -q {input.qc_config} -g {input.gff} -d {params.ivar_base_dir} --output-tsv {output.ivar_report} > {log.ivar_log} 2>&1
+        nextclade -i {input.ivar_consensus} --input-root-seq {input.ref} -a {input.tree} -q {input.qc_config} -g {input.gff} --input-virus-properties {input.virus_prop} -d {params.ivar_base_dir} --output-tsv {output.ivar_report} > {log.ivar_log} 2>&1
 
-        ./nextclade-1.0.0-alpha.9 -i {input.gatk_consensus} --input-root-seq {input.ref} -a {input.tree} -q {input.qc_config} -g {input.gff} -d {params.gatk_base_dir} --output-tsv {output.gatk_report} > {log.gatk_log} 2>&1
+        nextclade -i {input.gatk_consensus} --input-root-seq {input.ref} -a {input.tree} -q {input.qc_config} -g {input.gff} --input-virus-properties {input.virus_prop} -d {params.gatk_base_dir} --output-tsv {output.gatk_report} > {log.gatk_log} 2>&1
         """
 
-## compile_results: Combine all summary tables and generate main table and GISAID table.
+## compile_results: Combine results and generate main summary table.
 rule compile_results:
     input:
-        sample_file = SAMPLE_FILE,
-        multiqc = bd("results/multiqc/multiqc_report_raw_bams_data/multiqc_general_stats.txt"),
-        vcf = expand(bd("results/gatk/{sample}.masked.fvcf.gz"), sample = samples),
-        variants = expand(bd("results/ivar/{sample}.tsv"), sample = samples),
+        multiqc_report = bd("results/multiqc/multiqc_report_raw_bams_data/multiqc_general_stats.txt"),
         ivar_stats = bd("results/ivar/all_samples_consensus_stats.csv"),
         gatk_stats = bd("results/gatk/all_samples_consensus_stats.csv"),
         ivar_pangolin = bd("results/ivar-pangolin/lineage_report.csv"),
@@ -664,32 +745,29 @@ rule compile_results:
         ivar_nextclade = bd("results/ivar-nextclade/nextclade_report.tsv"),
         gatk_nextclade = bd("results/gatk-nextclade/nextclade_report.tsv")
     output:
-        bd(BATCH_NAME + "-summary.csv")
+        bd(ANALYSIS + "-summary.csv")
     params:
-        batch = BATCH_NAME,
-        batch_dir = BASE_BATCH_DIR + "/",
-        ivar_dir = bd("results/ivar/"),
-        gatk_dir = bd("results/gatk/")
+        mask_problematic = mask_prob
     log:
         bd("logs/compile_results.log")
     shell:
         """
-        Rscript lib/compile_results.R {input.sample_file} {params.batch} {params.batch_dir} {input.multiqc} {params.ivar_dir} {params.gatk_dir} {input.ivar_stats} {input.gatk_stats} {input.ivar_pangolin} {input.gatk_pangolin} {input.ivar_nextclade} {input.gatk_nextclade} > {log} 2>&1
+        Rscript lib/compile_results.R {output} {params.mask_problematic} > {log} 2>&1
         """
 
 ## gisaid_seqs: Combine sequences with GISAID headers
-rule gisaid_seqs:
-    input:
-        sample_file = SAMPLE_FILE,
-        summary_file = bd(BATCH_NAME + "-summary.csv")
-    params:
-        batch = BATCH_NAME,
-        ivar_dir = bd("results/ivar/")
-    output:
-        gisaid_file = bd("gisaid/gisaid.fa")
-    log:
-        bd("logs/gisaid_seq.log")
-    shell:
-        """
-        python lib/gisaid_seq.py {params.ivar_dir} {params.batch} {input.sample_file} {input.summary_file} {output.gisaid_file} > {log} 2>&1
-        """
+#rule gisaid_seqs:
+#    input:
+#        sample_file = SAMPLE_FILE,
+#        summary_file = bd(BATCH_NAME + "-summary.csv")
+#    params:
+#        batch = BATCH_NAME,
+#        ivar_dir = bd("results/ivar/")
+#    output:
+#        gisaid_file = bd("gisaid/gisaid.fa")
+#    log:
+#        bd("logs/gisaid_seq.log")
+#    shell:
+#        """
+#        python lib/gisaid_seq.py {params.ivar_dir} {params.batch} {input.sample_file} {input.summary_file} {output.gisaid_file} > {log} 2>&1
+#        """

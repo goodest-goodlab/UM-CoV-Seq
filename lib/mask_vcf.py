@@ -28,10 +28,11 @@ def readVCF(vcffile):
 
 ############################################################
 
-input_file, output_file = sys.argv[1:];
+input_file, output_file, mask_prob = sys.argv[1:];
 # Parse positional input arguments:
 # input_file: An input VCF file
 # output_file: An output, masked VCF file
+# mask_prob: A flag to 
 
 problematic_vcf = "ProblematicSites_SARS-CoV2/problematic_sites_sarsCov2.vcf";
 problematic_sites = readVCF(problematic_vcf);
@@ -42,23 +43,32 @@ os.system("gunzip " + input_file);
 vcflines = [ line.strip().split("\t") for line in open(input_file_unzipped) ];
 # Unzip and read the iteration VCF file.
 
+# Log whether problematic sites are being masked or not:
+if mask_prob == "TRUE":
+    print("MASKING PROBLEMATIC SITES")
+else:
+    print("NOT MASKING PROBLEMATIC SITES")
+
 num_filtered = 0;
 for i in range(len(vcflines)):
     if vcflines[i][0].startswith("#"):
         continue;
     # Check each SNP in the VCF file; skip the header lines.
 
-    for site in problematic_sites:
-        if vcflines[i][1] == site[1] and vcflines[i][4] in site[4] and vcflines[i][6] == "PASS":
-            vcflines[i][6] = "FILTER";
-            num_filtered += 1;
-    # Check each SNP in the provided -vcf file. If it matches the current SNP, add the filter string to the
-    # FILTER column.
+    if mask_prob == "TRUE":
+        for site in problematic_sites:
+            if vcflines[i][1] == site[1] and vcflines[i][4] in site[4] and vcflines[i][6] == "PASS":
+                vcflines[i][6] = "FILTER";
+                num_filtered += 1;
+                print("Masked problematic site: " + str(site[1]))
+        # Check each SNP in the provided -vcf file. If it matches the current SNP, add the filter string to the
+        # FILTER column.
 
     genotype = vcflines[i][9].split(":")[0];
-    if genotype == "./.":
+    if genotype == ".":
         vcflines[i][4] = "N";
         vcflines[i][6] = "PASS";
+        print("Masked low-confidence site: " + str(vcflines[i][1]))
     # To mask sites without enough info for a call, switch their alt allele to N and the filter to PASS to ensure
     # the N is inserted into the consensus.
 

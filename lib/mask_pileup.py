@@ -43,6 +43,7 @@ with open(output_file, "w") as outfile:
             # Replace the old base string with the new one
 
             outfile.write("\t".join(line_list) + "\n");
+            print("Masked problematic site: " + str(line_list[1]))
             # Write the modified line to the output pileup file
         # Replace alternate alleles at problematic sites
 
